@@ -345,13 +345,14 @@ class msd_diffusion:
                         [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
                         '-', color=cm.jet(show_color), linewidth=0.4)  # 0.25)
 
-    def save_tracks_to_img(self, ax, len_cutoff='default', max_Deff=0.5):
+    def save_tracks_to_img(self, ax, len_cutoff='default', max_Deff=0.5, lw=0.4):
         from matplotlib import cm
 
         if(len_cutoff == 'default'):
             len_cutoff=self.track_len_cutoff_linfit
 
         ids=np.unique(self.tracks[:,self.tracks_id_col])
+        count=0
         for id in ids:
             cur_track=self.tracks[self.tracks[:,self.tracks_id_col]==id]
             if(len(cur_track) >= self.min_track_len_linfit):
@@ -369,7 +370,9 @@ class msd_diffusion:
                 if(show_color>1):
                     print("need to raise max_D, ",D)
                     show_color=1
-                ax.plot(x_vals,y_vals,'-',color=cm.jet(show_color),linewidth=0.4) #0.25)
+                ax.plot(x_vals,y_vals,'-',color=cm.jet(show_color),linewidth=lw) #0.25)
+                count+=1
+        print(count, " tracks plotted.")
 
 
     # def save_angle_autocorr(self, file_name="angles_autocorr.pdf"):
