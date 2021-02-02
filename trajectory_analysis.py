@@ -62,10 +62,7 @@ class trajectory_analysis:
         self._file_col_name='file name'
         self._movie_file_col_name='movie file name'
 
-        if (self.get_calibration_from_metadata):
-            self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name, self._movie_file_col_name]
-        else:
-            self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name]
+        self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name, self._movie_file_col_name]
 
         #read in the data file, check for the required columns and identify the label columns
         self.error_in_data_file = False
@@ -77,9 +74,10 @@ class trajectory_analysis:
             if(col in col_names):
                 col_names.remove(col)
             else:
-                self.log.write(f"Error! Required column {col} not found in input file {self.data_file}\n")
-                self.error_in_data_file=True
-                break
+                if(col != self.movie_file_col_name or (col == self.movie_file_col_name and self.get_calibration_from_metadata)):
+                    self.log.write(f"Error! Required column {col} not found in input file {self.data_file}\n")
+                    self.error_in_data_file=True
+                    break
 
         # read in the time step information from the movie files
         if(not self.error_in_data_file):
@@ -162,7 +160,7 @@ class trajectory_analysis:
             labels.insert(0, l1)
         ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
 
-    def plot_distribution_step_sizes(self, tlags=[1,2,3]):
+    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_combined=False):
         self.data_list_with_step_sizes = pd.read_csv(self.results_dir + "/all_data_step_sizes.txt", index_col=0, sep='\t', low_memory=False)
         start_pos = self.data_list_with_step_sizes.columns.get_loc("0")
         stop_pos=len(self.data_list_with_step_sizes.columns) - start_pos - 1
@@ -211,20 +209,21 @@ class trajectory_analysis:
                     ax.plot(plotting_ind, plotting_kdepdf)
 
 
-                fig2 = plt.figure()
-                ax2 = fig2.add_subplot(1, 1, 1)
+                if(plot_combined):
+                    fig2 = plt.figure()
+                    ax2 = fig2.add_subplot(1, 1, 1)
 
-                to_combine_2 = np.asarray(to_combine_2)
-                medians = np.median(to_combine_2, axis=0)
-                ax2.plot(ind, medians)
-                #errs = stats.sem(to_combine_2, axis=0)
-                errs=np.std(to_combine_2, axis=0)
-                ax2.fill_between(ind, medians-errs, medians+errs, alpha=0.4)
+                    to_combine_2 = np.asarray(to_combine_2)
+                    medians = np.median(to_combine_2, axis=0)
+                    ax2.plot(ind, medians)
+                    #errs = stats.sem(to_combine_2, axis=0)
+                    errs=np.std(to_combine_2, axis=0)
+                    ax2.fill_between(ind, medians-errs, medians+errs, alpha=0.4)
 
-                #sns.lineplot(x="x_val",y="y_val",data=to_combine_full, estimator=np.median, ci="sd", ax=ax2)
+                    #sns.lineplot(x="x_val",y="y_val",data=to_combine_full, estimator=np.median, ci="sd", ax=ax2)
 
-                fig2.savefig(self.results_dir + '/summary_tlag' + str(tlag) + '_' + str(group) + '_steps.pdf')
-                fig2.clf()
+                    fig2.savefig(self.results_dir + '/summary_tlag' + str(tlag) + '_' + str(group) + '_steps.pdf')
+                    fig2.clf()
 
                 fig.savefig(self.results_dir + '/all_tlag'+str(tlag)+'_'+str(group)+'_steps.pdf')
                 fig.clf()
@@ -746,6 +745,8 @@ class trajectory_analysis:
         self.data_list_with_results['D_mean']=0.0
         self.data_list_with_results['D_median_filtered'] = 0.0
         self.data_list_with_results['D_mean_filtered'] = 0.0
+        self.data_list_with_results['num_tracks'] = 0
+        self.data_list_with_results['num_tracks_D'] = 0
         self.data_list_with_results['group']=''
         self.data_list_with_results['group_readable'] = ''
 
@@ -765,6 +766,9 @@ class trajectory_analysis:
                 cur_dir=data[self._dir_col_name]
                 cur_file=data[self._file_col_name]
 
+                if(cur_file == "Traj_DMSO-20h001-17.tif.csv"):
+                    print("")
+
                 # check if we need to set the calibration for this file
                 if (self.get_calibration_from_metadata):
                     cur_movie_name = data[self._movie_file_col_name]
@@ -775,6 +779,7 @@ class trajectory_analysis:
 
                 track_data = self.read_track_data_file(cur_dir + '/' + cur_file)
                 if (len(track_data) == 0):
+                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
                     continue
 
                 #for this movie, calcuate msd and diffusion for each track
@@ -782,14 +787,34 @@ class trajectory_analysis:
                 msd_diff_obj.msd_all_tracks()
                 msd_diff_obj.fit_msd()
 
+                if(len(msd_diff_obj.D_linfits)==0):
+                    self.log.write("Note!  File '" +
+                                   cur_dir + "/" + cur_file +
+                                   "' contains 0 tracks of minimum length for calculating Deff (" +
+                                   str(msd_diff_obj.min_track_len_linfit) + ")\n")
+                    self.data_list_with_results.at[index, 'D_median'] = np.nan
+                    self.data_list_with_results.at[index, 'D_mean'] = np.nan
+                    self.data_list_with_results.at[index, 'D_median_filtered'] = np.nan
+                    self.data_list_with_results.at[index, 'D_mean_filtered'] = np.nan
+                    self.data_list_with_results.at[index, 'num_tracks'] = len(msd_diff_obj.track_lengths)
+                    self.data_list_with_results.at[index, 'num_tracks_D'] = 0
+                    self.data_list_with_results.at[index, 'group'] = file_str
+                    self.data_list_with_results.at[index, 'group_readable'] = group_readable
+                    continue
+
+                D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
+                D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
+
                 D_linfits_filtered = msd_diff_obj.D_linfits[np.where(
                     (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] <= self.max_D_cutoff) &
                     (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] >= self.min_D_cutoff))]
 
-                D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
-                D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
-                D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
-                D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
+                if(len(D_linfits_filtered)==0):
+                    D_median_filt = np.nan
+                    D_mean_filt = np.nan
+                else:
+                    D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
+                    D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
 
                 group_readable = file_str
                 if (self.group_str_to_readable and file_str in self.group_str_to_readable):
@@ -814,6 +839,8 @@ class trajectory_analysis:
                 self.data_list_with_results.at[index, 'D_mean'] = D_mean
                 self.data_list_with_results.at[index, 'D_median_filtered'] = D_median_filt
                 self.data_list_with_results.at[index, 'D_mean_filtered'] = D_mean_filt
+                self.data_list_with_results.at[index, 'num_tracks'] = len(msd_diff_obj.track_lengths)
+                self.data_list_with_results.at[index, 'num_tracks_D'] = len(msd_diff_obj.D_linfits)
                 self.data_list_with_results.at[index, 'group'] = file_str
                 self.data_list_with_results.at[index, 'group_readable']=group_readable
 
@@ -822,6 +849,8 @@ class trajectory_analysis:
                     msd_diff_obj.save_fit_data(file_name=file_str + '_' + str(index) + "_Dlin.txt")
 
                 full_data_i += len(cur_data)
+
+            self.log.flush()
 
         self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
         self.data_list_with_results_full.to_csv(self.results_dir + '/' + "all_data.txt", sep='\t')
