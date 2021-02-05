@@ -1,4 +1,6 @@
 
+
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
@@ -71,6 +73,7 @@ class msd_diffusion:
         self.fill_track_sizes()
 
     def msd2d(self, x, y):
+
         shifts = np.arange(1, len(x), 1)
         MSD = np.zeros(shifts.size)
         MSD_std = np.zeros(shifts.size)
@@ -398,6 +401,100 @@ class msd_diffusion:
 
 test1=False
 test2=False
+test3=False
+
+from nd2reader import ND2Reader
+def read_movie_metadata(file_name):
+    try:
+        with ND2Reader(file_name) as images:
+            steps = images.timesteps[1:] - images.timesteps[:-1]
+            steps = np.round(steps, 0)
+            #convert steps from ms to s
+            steps=steps/1000
+            microns_per_pixel=images.metadata['pixel_microns']
+            return (microns_per_pixel,steps)
+    except FileNotFoundError as e:
+        return None
+
+def filter_tracks(track_data, min_len, time_steps, min_resolution):
+    correct_ts = np.min(time_steps)
+    traj_ids = np.unique(track_data['Trajectory'])
+    track_data_cp=track_data.copy()
+    track_data_cp['Remove']=True
+    for traj_id in traj_ids:
+        cur_track = track_data[track_data['Trajectory']==traj_id].copy()
+        if(len(cur_track) >= min_len):
+            new_seg=True
+            longest_seg_start = cur_track.index[0]
+            longest_seg_len = 0
+            for row_i, row in enumerate(cur_track.iterrows()):
+                if(row_i > 0):
+                    if(new_seg):
+                        cur_seg_start=row[0]-1
+                        cur_seg_len=0
+                        new_seg=False
+
+                    fr=row[1]['Frame']
+                    cur_ts = time_steps[int(fr-1)]
+                    if((cur_ts - correct_ts) <= min_resolution):
+                        #keep going
+                        cur_seg_len+=1
+                    else:
+                        if(cur_seg_len > longest_seg_len):
+                            longest_seg_len=cur_seg_len
+                            longest_seg_start = cur_seg_start
+                            new_seg=True
+            if(not new_seg):
+                if (cur_seg_len > longest_seg_len):
+                    longest_seg_len = cur_seg_len
+                    longest_seg_start = cur_seg_start
+
+            if(longest_seg_len >= min_len):
+                # add track segment to new DF - check # 10
+                track_data_cp.loc[longest_seg_start:longest_seg_start+longest_seg_len,'Remove']=False
+
+    track_data_cp = track_data_cp[track_data_cp['Remove']==False]
+    track_data_cp.index=range(len(track_data_cp))
+    track_data_cp = track_data_cp.drop('Remove', axis=1)
+    return track_data_cp
+
+if(test3):
+    dir_results = "/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/For MOISAIC analysis/testing_results"
+    csv_file="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/For MOISAIC analysis/Traj_rim15 -C stavation 4h-1.nd2_crop.csv"
+    movie_file="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/rim15 -C stavation 4h-1.nd2"
+
+    ret = read_movie_metadata(movie_file)
+
+    track_data_df = pd.read_csv(csv_file)
+    track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
+
+    if(len(np.unique(ret[1])) > 0):
+        track_data_filtered = filter_tracks(track_data_df, 11, ret[1], 0.005)
+        track_data_filtered.to_csv(dir_results + "/" + os.path.split(csv_file)[1][:-4] + "_filtered.csv")
+        track_data = track_data_filtered.to_numpy()
+    else:
+        track_data = track_data_df.to_numpy()
+
+    msd_diff_obj = msd_diffusion()
+    msd_diff_obj.save_dir = dir_results
+
+    print("Base time step:", np.min(ret[1]))
+    print("Micron per pixel:", ret[0])
+    msd_diff_obj.time_step = np.min(ret[1])
+    msd_diff_obj.micron_per_px = ret[0]
+
+    msd_diff_obj.set_track_data(track_data)
+    msd_diff_obj.step_sizes_and_angles()
+
+    msd_diff_obj.msd_all_tracks()
+    msd_diff_obj.fit_msd()
+
+    msd_diff_obj.save_msd_data(file_name=os.path.split(csv_file)[1][:-4] + "_MSD.txt")
+    df=msd_diff_obj.save_fit_data(file_name=os.path.split(csv_file)[1][:-4] + "_Dlin.txt")
+    msd_diff_obj.save_step_sizes(file_name=os.path.split(csv_file)[1][:-4] + "_step_sizes.txt")
+
+    print(np.median(df['D']))
+
 if(test1):
     dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/GEMs/for_presentation"
 

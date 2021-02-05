@@ -78,7 +78,7 @@ class RunDialog(wx.Dialog):
             self.text_ctrl_run_params.append(wx.TextCtrl(panel, id=wx.ID_ANY, value=str(default_values[i]), pos=(250, start_y+i*spacing)))
 
         next_start=start_y+(i+1)*spacing+25
-        self.use_previous_chk = wx.CheckBox(panel, label="Use previous analysis results", pos=(10, next_start))
+        self.read_movie_metadata_chk = wx.CheckBox(panel, label="Use movie files to read scale/time-step", pos=(10, next_start))
         self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(10, next_start+35))
         self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(150, next_start+35))
 
@@ -86,8 +86,8 @@ class RunDialog(wx.Dialog):
         return self.chosen_dir.GetPath()
     def get_filepath(self):
         return self.chosen_file.GetPath()
-    def use_previous(self):
-        return self.use_previous_chk.IsChecked()
+    def read_movie_metadata(self):
+        return self.read_movie_metadata_chk.IsChecked()
 
     def get_time_step(self):
         return float(self.text_ctrl_run_params[0].GetValue())
@@ -128,9 +128,8 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         self.left_panel_upper.SetSizer(self.leftGridSizer)
 
         self.add_cell_col_chk = wx.CheckBox(self.left_panel_lower, label="Add column for cell label using file name", pos=(10,10))
-        self.read_movie_metadata_chk = wx.CheckBox(self.left_panel_lower, label="Use movie files to read scale/time-step", pos=(10, 40))
-        self.choose_files_button = wx.Button(self.left_panel_lower, label="1. Choose files", pos=(10,70))
-        self.choose_movie_file_button = wx.Button(self.left_panel_lower, label="2. Choose movie file", pos=(10, 100))
+        self.choose_files_button = wx.Button(self.left_panel_lower, label="1. Choose files", pos=(10,40))
+        self.choose_movie_file_button = wx.Button(self.left_panel_lower, label="2. Choose movie file", pos=(10, 70))
 
         self.Bind(wx.EVT_BUTTON, self.on_click_choose_files_button, self.choose_files_button)
         self.Bind(wx.EVT_BUTTON, self.on_click_choose_movie_file_button, self.choose_movie_file_button)
@@ -427,45 +426,39 @@ class GEMSAnalyzerMainFrame(wx.Frame):
             if dlg.ShowModal() == wx.ID_OK:
                 save_results_dir = dlg.get_save_dir()
                 input_file = dlg.get_filepath()
-                use_previous = dlg.use_previous()
+                read_movie_metadata = dlg.read_movie_metadata()
 
                 if(not save_results_dir or not input_file):
                     wx.MessageDialog(self, "Please do not leave the results directory or the file name blank.  Cannot run analysis.").ShowModal()
                 else:
                     self.statusbar.SetStatusText('Please wait, running analysis...')
 
-                    if(use_previous):
-                        traj_an = tja.trajectory_analysis(input_file, save_results_dir)
-                        traj_an.make_plot()
-                        traj_an.plot_distribution_step_sizes(tlags=[1,])
-                        #traj_an.plot_distribution_angles(tlags=[1,])
+                    # run the analysis
+                    # def __init__(self, data_file, results_dir='.', movie_file_col=False, log_file=''):
+                    if (read_movie_metadata):
+                        # time step and micron per px is read from the movie files' metatdata
+                        traj_an = tja.trajectory_analysis(input_file, save_results_dir, True)
                     else:
-                        # run the analysis
-                        # def __init__(self, data_file, results_dir='.', movie_file_col=False, log_file=''):
-                        if (self.read_movie_metadata_chk.IsChecked()):
-                            # time step and micron per px is read from the movie files' metatdata
-                            traj_an = tja.trajectory_analysis(input_file, save_results_dir, True)
-                        else:
-                            traj_an = tja.trajectory_analysis(input_file, save_results_dir, False)
+                        traj_an = tja.trajectory_analysis(input_file, save_results_dir, False)
 
-                        traj_an.time_step = dlg.get_time_step()
-                        traj_an.micron_per_px = dlg.get_micron_per_px()
+                    traj_an.time_step = dlg.get_time_step()
+                    traj_an.micron_per_px = dlg.get_micron_per_px()
 
-                        traj_an.min_track_len_linfit = dlg.get_min_track_len_linfit()
-                        traj_an.min_track_len_step_size = dlg.get_min_track_len_step_size()
+                    traj_an.min_track_len_linfit = dlg.get_min_track_len_linfit()
+                    traj_an.min_track_len_step_size = dlg.get_min_track_len_step_size()
 
-                        traj_an.track_len_cutoff_linfit = dlg.get_track_len_cutoff_linfit()
-                        traj_an.max_tlag_step_size = dlg.get_max_tlag_step_size()
-                        traj_an.min_D_cutoff = dlg.get_min_D_cutoff()
-                        traj_an.max_D_cutoff = dlg.get_max_D_cutoff()
+                    traj_an.track_len_cutoff_linfit = dlg.get_track_len_cutoff_linfit()
+                    traj_an.max_tlag_step_size = dlg.get_max_tlag_step_size()
+                    traj_an.min_D_cutoff = dlg.get_min_D_cutoff()
+                    traj_an.max_D_cutoff = dlg.get_max_D_cutoff()
 
-                        traj_an.write_params_to_log_file()
+                    traj_an.write_params_to_log_file()
 
-                        traj_an.calculate_step_sizes_and_angles()
-                        traj_an.calculate_msd_and_diffusion()
-                        traj_an.make_plot()
-                        traj_an.plot_distribution_step_sizes(tlags=[1,])
-                        #traj_an.plot_distribution_angles(tlags=[1,])
+                    traj_an.calculate_step_sizes_and_angles()
+                    traj_an.calculate_msd_and_diffusion()
+                    traj_an.make_plot()
+                    traj_an.plot_distribution_step_sizes(tlags=[1,])
+                    #traj_an.plot_distribution_angles(tlags=[1,])
 
                     self.statusbar.SetStatusText('Finished!')
 
