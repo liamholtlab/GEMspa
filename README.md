@@ -3,7 +3,9 @@
 This program will calculate the Diffusion coefficient for trajectories from single particle tracking.  The input files are expected to be in .csv format, as output from MOSAIC Fiji plugin.  They must have headers titled: Trajectory, Frame, x, y.  (Any additional columns will be ignored)
 
 (1) Create txt (tab-separated) indicating experimental conditions.  (see example in this repository: "conditions.txt")
+
 (2) Start GemSpa by running the program from the command line, e.g. "python main_gui.py"
+
 (3) Load in the txt file (from step 1) to GemSpa: Go to File -> Load from file.  This will open a grid view with the column headers already filled in for you.
 (4) You may now select the relevant experimental conditions on the left side and click "1. Choose files", and choose the csv trajectory files for selected condition.  This will add these csv files to the grid view.  Continue with each combination of conditions in your experiment.
 (5) When finished, Save this file File->Save as a txt file.
