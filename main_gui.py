@@ -70,8 +70,9 @@ class RunDialog(wx.Dialog):
         spacing=35
         params_list = ['Time between frames (s):', 'Scale (microns per px):', 'Min. track length (fit):',
                        'Track length cutoff (fit):', 'Min track length (step size/angles):',
-                       'Max t-lag (step size/angles):','Min D for plots:','Max D for plots:']
-        default_values = [0.010,0.11,11,11,3,3,0,2]
+                       'Max t-lag (step size/angles):', 'Time step resolution (uneven time steps) (s):',
+                       'Min D for plots:','Max D for plots:']
+        default_values = [0.010,0.11,11,11,3,3,0.005,0,2]
         self.text_ctrl_run_params=[]
         for i,param in enumerate(params_list):
             wx.StaticText(panel, label=param, pos=(10,start_y+i*spacing))
@@ -101,10 +102,14 @@ class RunDialog(wx.Dialog):
         return int(self.text_ctrl_run_params[4].GetValue())
     def get_max_tlag_step_size(self):
         return int(self.text_ctrl_run_params[5].GetValue())
-    def get_min_D_cutoff(self):
+
+    def get_time_step_resolution(self):
         return float(self.text_ctrl_run_params[6].GetValue())
-    def get_max_D_cutoff(self):
+
+    def get_min_D_cutoff(self):
         return float(self.text_ctrl_run_params[7].GetValue())
+    def get_max_D_cutoff(self):
+        return float(self.text_ctrl_run_params[8].GetValue())
 
 class GEMSAnalyzerMainFrame(wx.Frame):
 
@@ -129,10 +134,11 @@ class GEMSAnalyzerMainFrame(wx.Frame):
 
         self.add_cell_col_chk = wx.CheckBox(self.left_panel_lower, label="Add column for cell label using file name", pos=(10,10))
         self.choose_files_button = wx.Button(self.left_panel_lower, label="1. Choose files", pos=(10,40))
-        self.choose_movie_file_button = wx.Button(self.left_panel_lower, label="2. Choose movie file", pos=(10, 70))
+        self.choose_movie_dir_button = wx.Button(self.left_panel_lower, label="2. Choose movie files directory", pos=(10, 70))
+
 
         self.Bind(wx.EVT_BUTTON, self.on_click_choose_files_button, self.choose_files_button)
-        self.Bind(wx.EVT_BUTTON, self.on_click_choose_movie_file_button, self.choose_movie_file_button)
+        self.Bind(wx.EVT_BUTTON, self.on_click_choose_movie_dir_button, self.choose_movie_dir_button)
 
         sizer=wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.left_panel_upper, 1, wx.SHAPED | wx.ALL, border=2)
@@ -168,21 +174,18 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         #self.Layout()
         self.Show()
 
-    def on_click_choose_movie_file_button(self, e):
-        with wx.FileDialog(self, "Select files", wildcard="nd2 files (*.nd2)|*.nd2",
-                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as fileDialog:
-            if fileDialog.ShowModal() == wx.ID_CANCEL:
+    def on_click_choose_movie_dir_button(self, e):
+        with wx.DirDialog(self, "Select Directory") as dirDialog:
+            if dirDialog.ShowModal() == wx.ID_CANCEL:
                 return
-            pathname = fileDialog.GetPath()
+            pathname = dirDialog.GetPath()
 
-        # add the movie file to each row that was selected by user
-
+        # add the movie file dir name to each row that was selected by user
         # return value is a 0-indexed list of selected rows
         rows_selected = self.mainGrid.GetSelectedRows()
         for row_i in rows_selected:
-            print(row_i)
+            #print(row_i)
             self.mainGrid.SetCellValue(row_i, 3, pathname)
-
 
     def on_click_choose_files_button(self, e):
         with wx.FileDialog(self, "Select files", wildcard="csv files (*.csv)|*.csv",
@@ -204,6 +207,7 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                 self.mainGrid.AppendCols(1)
                 self.mainGrid.SetCellValue(0,self.mainGrid.GetNumberCols()-1,'cell')
 
+        rows_to_select=[]
         for pathname in pathnames:
             # fill in row with: id, dir, filename, movie-filename and conditions in list
             self.mainGrid.AppendRows(1)
@@ -227,8 +231,14 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     cell_id = mo.group(1)
                     self.mainGrid.SetCellValue(self.next_grid_row_pos, i+4+1, cell_id)
 
+            rows_to_select.append(self.next_grid_row_pos)
             self.next_grid_row_pos+=1
             self.next_id+=1
+
+        #select all the rows just created
+        self.mainGrid.SelectRow(rows_to_select[0], addToSelected=False)
+        for row in rows_to_select:
+            self.mainGrid.SelectRow(row, addToSelected=True)
 
     def load_conditions_to_panel(self):
         self.leftGridSizer.SetRows(len(self.conditions_list)+1)
@@ -434,15 +444,16 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     self.statusbar.SetStatusText('Please wait, running analysis...')
 
                     # run the analysis
-                    # def __init__(self, data_file, results_dir='.', movie_file_col=False, log_file=''):
+                    #def __init__(self, data_file, results_dir='.', use_movie_metadata=False, movie_file_is_dir=True, log_file=''):
                     if (read_movie_metadata):
                         # time step and micron per px is read from the movie files' metatdata
-                        traj_an = tja.trajectory_analysis(input_file, save_results_dir, True)
+                        traj_an = tja.trajectory_analysis(input_file, save_results_dir, True, False) # TODO set final argument to True for future version
                     else:
                         traj_an = tja.trajectory_analysis(input_file, save_results_dir, False)
 
                     traj_an.time_step = dlg.get_time_step()
                     traj_an.micron_per_px = dlg.get_micron_per_px()
+                    traj_an.ts_resolution=dlg.get_time_step_resolution()
 
                     traj_an.min_track_len_linfit = dlg.get_min_track_len_linfit()
                     traj_an.min_track_len_step_size = dlg.get_min_track_len_step_size()
@@ -454,9 +465,9 @@ class GEMSAnalyzerMainFrame(wx.Frame):
 
                     traj_an.write_params_to_log_file()
 
-                    traj_an.calculate_step_sizes_and_angles()
                     traj_an.calculate_msd_and_diffusion()
                     traj_an.make_plot()
+                    traj_an.calculate_step_sizes_and_angles()
                     traj_an.plot_distribution_step_sizes(tlags=[1,])
                     #traj_an.plot_distribution_angles(tlags=[1,])
 

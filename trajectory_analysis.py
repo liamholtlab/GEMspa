@@ -10,20 +10,54 @@ import msd_diffusion as msd_diff
 from scipy import stats
 import datetime
 import re
+from tifffile import TiffFile
 from nd2reader import ND2Reader
 
-def read_movie_metadata(file_name):
-    try:
-        with ND2Reader(file_name) as images:
-            steps = images.timesteps[1:] - images.timesteps[:-1]
-            steps = np.round(steps, 0)
-            #convert steps from ms to s
-            steps=steps/1000
-            microns_per_pixel=images.metadata['pixel_microns']
-            return (microns_per_pixel,steps)
-    except FileNotFoundError as e:
-        return None
+def read_movie_metadata_tif(file_name):
+    with TiffFile(file_name) as tif:
+        metadata = tif.pages[0].tags['IJMetadata'].value
+        metadata_list = metadata["Info"].split("\n")
+        time_step_list=[]
+        for item in metadata_list:
+            if(item.startswith("dCalibration = ")):
+                cal=float(item[15:])
+            if(item.startswith("dMinPeriodDiff = ")):
+                time_step_min=int(round(float(item[17:]), 0))
+            if (item.startswith("dMaxPeriodDiff = ")):
+                time_step_max = int(round(float(item[17:]), 0))
+            if (item.startswith("dAvgPeriodDiff = ")):
+                time_step_ave = int(round(float(item[17:]), 0))
+            #print(item)
+            if(item.startswith("timestamp #")):
+                mo=re.match(r'timestamp #(\d+) = (.+)', item)
+                if(mo):
+                    time_step_list.append(float(mo.group(2)))
+        time_step_list=np.asarray(time_step_list)
+        steps = time_step_list[1:] - time_step_list[:-1]
+        steps = np.round(steps, 3)
 
+        # convert from ms to s
+        time_step_ave = time_step_ave / 1000
+
+        if(time_step_min == time_step_max):
+            return (cal, time_step_ave, [])
+        else:
+            if(max(steps) > 1): # indicates time step info is invalid, > 1000ms between steps is being reported
+                return (cal, time_step_ave, [])
+            else:
+                return (cal, time_step_ave, steps)
+
+# def read_movie_metadata(file_name):
+#     try:
+#         with ND2Reader(file_name) as images:
+#             steps = images.timesteps[1:] - images.timesteps[:-1]
+#             steps = np.round(steps, 0)
+#             #convert steps from ms to s
+#             steps=steps/1000
+#             microns_per_pixel=images.metadata['pixel_microns']
+#             return (microns_per_pixel,steps)
+#     except FileNotFoundError as e:
+#         return None
 
 def filter_tracks(track_data, min_len, time_steps, min_resolution):
     correct_ts = np.min(time_steps)
@@ -68,12 +102,15 @@ def filter_tracks(track_data, min_len, time_steps, min_resolution):
     return track_data_cp
 
 class trajectory_analysis:
-    def __init__(self, data_file, results_dir='.', use_movie_metadata=False, log_file=''):
+    def __init__(self, data_file, results_dir='.', use_movie_metadata=False, movie_file_is_dir=True, log_file=''):
         self.get_calibration_from_metadata=use_movie_metadata
         self.calibration_from_metadata={}
+        self.read_movie_file_as_dir=movie_file_is_dir  # movie file is a dir, get name from csv file name
+                                                           # if false, movie file is a file name
+
         self.time_step = 0.010  # time between frames, in seconds
         self.micron_per_px = 0.11
-        self.min_ts_resolution=0.005
+        self.ts_resolution=0.005
 
         # track (trajectory) files columns - user can adjust as needed
         self.traj_id_col = 'Trajectory'
@@ -128,17 +165,32 @@ class trajectory_analysis:
             if(self.get_calibration_from_metadata):
                 # read in the movie files to get the meta data / record time steps
                 self.data_list[self._movie_file_col_name] = self.data_list[self._movie_file_col_name].fillna('')
-                movie_file_names = np.unique(self.data_list[self._movie_file_col_name])
-                for name in movie_file_names:
-                    if(name != ''):
-                        ret_val = read_movie_metadata(name)
-                        if(ret_val):
-                            self.calibration_from_metadata[name]=ret_val
-                            self.log.write(f"Movie file {name}: microns-per-pixel={ret_val[0]}, min-time-step={np.min(ret_val[1])}\n")
-                            self.log.write(f"Full time step list: {ret_val[1]}\n")
-                        else:
-                            self.calibration_from_metadata[name]=''
-                            self.log.write(f"Error! Movie file not found: {name}.  Falling back to default settings.\n")
+                for row in self.data_list.iterrows():
+                    ind=row[1][self._index_col_name]
+
+                    if(self.read_movie_file_as_dir):
+                        #movie file is a dir, get name from csv file name
+                        #csv file: Traj_<movie_file_name>.csv # <prefix>_<movie_file_name>_<suffix>.csv
+                        csv_file=row[1][self._file_col_name]
+
+                        movie_dir=row[1][self._movie_file_col_name]
+                        movie_file=movie_dir+"/" + csv_file[5:-4] # Drop "Traj_" at beginning and ".csv" at end
+                        if(not movie_file.endswith(".tif")): # Check it ends with tif
+                            movie_file = movie_file + ".tif"
+                        #csv_file[:-4]+".nd2"  ## TODO allow ND2?
+                    else: #movie file is a file name, add dir from dir column
+                        movie_file = row[1][self._dir_col_name] + '/' + row[1][self._movie_file_col_name]
+
+                    ret_val = read_movie_metadata_tif(movie_file)
+                    if (ret_val):
+                        self.calibration_from_metadata[ind] = ret_val
+                        self.log.write(
+                            f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, ave-time-step={ret_val[1]}\n") #{}\n")
+                        if(len(ret_val[2]) > 0):
+                            self.log.write(f"Full time step list: min={np.min(ret_val[1])}, {ret_val[2]}\n")
+                    else:
+                        self.calibration_from_metadata[ind] = ''
+                        self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
 
             # group by the label columns
             # set_index will throw ValueError if index col has repeats
@@ -157,7 +209,7 @@ class trajectory_analysis:
     def write_params_to_log_file(self):
         self.log.write("Run paramters:\n")
         self.log.write(f"Read calibration from metadata: {self.get_calibration_from_metadata}\n")
-        self.log.write(f"Min. time step resolution: {self.min_ts_resolution}\n")
+        self.log.write(f"Min. time step resolution: {self.ts_resolution}\n")
         self.log.write(f"Time between frames (s): {self.time_step}\n")
         self.log.write(f"Scale (microns per px): {self.micron_per_px}\n")
 
@@ -691,18 +743,40 @@ class trajectory_analysis:
                 cur_dir = data[self._dir_col_name]
                 cur_file = data[self._file_col_name]
 
-                track_data = self.read_track_data_file(cur_dir + '/' + cur_file)
-                track_data = track_data.to_numpy()
-                if (len(track_data) == 0):
+
+                track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
+                if (len(track_data_df) == 0):
+                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
                     continue
 
                 #check if we need to set the calibration for this file
                 if(self.get_calibration_from_metadata):
-                    cur_movie_name = data[self._movie_file_col_name]
-                    if(cur_movie_name in self.calibration_from_metadata and self.calibration_from_metadata[cur_movie_name] != ''):
-                        m_px,step_sizes=self.calibration_from_metadata[cur_movie_name]
+
+                    if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
+                        m_px=self.calibration_from_metadata[index][0]
+                        ave_step_size=self.calibration_from_metadata[index][1]
+                        step_sizes=self.calibration_from_metadata[index][2]
                         msd_diff_obj.micron_per_px=m_px
-                        msd_diff_obj.time_step=step_sizes[0]
+                        if(len(step_sizes)>0):
+                            msd_diff_obj.time_step=np.min(step_sizes)
+                        else:
+                            msd_diff_obj.time_step=ave_step_size
+
+                        # if we have varying step sizes, must filter tracks
+                        if (len(np.unique(step_sizes)) > 0):  ## TODO fix this so it checks whether the largest diff. is > mindiff
+                            track_data_filtered = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution)
+                            # save the new, filtered CSVs
+                            track_data_filtered.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv",sep='\t')
+                            track_data = track_data_filtered.to_numpy()
+                        else:
+                            track_data = track_data_df.to_numpy()
+
+                else:
+                    track_data = track_data_df.to_numpy()
+
+                if (len(track_data) == 0):
+                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after filtering.\n")
+                    continue
 
                 # for this movie, calcuate step sizes and angles for each track
                 msd_diff_obj.set_track_data(track_data)
@@ -748,7 +822,10 @@ class trajectory_analysis:
                     #msd_diff_obj.save_angles(file_name=file_str + '_' + str(index) + "_angles.txt") TODO ANGLES
 
                 full_data_ss_i += len(cur_data_step_sizes)
-                #full_data_a_i +=  len(cur_data_angles) TODO ANGLES
+                #full_data_a_i +=  len(cur_data_angles) # TODO ANGLES
+
+                self.log.write("Processed " + str(index) +" "+cur_file + "for step sizes and angles.\n")
+                self.log.flush()
 
         self.data_list_with_step_sizes.to_csv(self.results_dir + '/' + "summary_step_sizes.txt", sep='\t')
         self.data_list_with_step_sizes_full.to_csv(self.results_dir + '/' + "all_data_step_sizes.txt", sep='\t')
@@ -817,23 +894,27 @@ class trajectory_analysis:
                 cur_file=data[self._file_col_name]
 
                 track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
-
-                if (len(track_data) == 0):
+                if (len(track_data_df) == 0):
                     self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
                     continue
 
                 # check if we need to set the calibration for this file
                 if (self.get_calibration_from_metadata):
-                    cur_movie_name = data[self._movie_file_col_name]
-                    if(cur_movie_name in self.calibration_from_metadata and self.calibration_from_metadata[cur_movie_name] != ''):
-                        m_px, step_sizes = self.calibration_from_metadata[cur_movie_name]
+
+                    if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
+                        m_px = self.calibration_from_metadata[index][0]
+                        ave_step_size = self.calibration_from_metadata[index][1]
+                        step_sizes = self.calibration_from_metadata[index][2]
                         msd_diff_obj.micron_per_px = m_px
-                        msd_diff_obj.time_step = np.min(step_sizes)
+                        if (len(step_sizes) > 0):
+                            msd_diff_obj.time_step = np.min(step_sizes)
+                        else:
+                            msd_diff_obj.time_step = ave_step_size
 
                         #if we have varying step sizes, must filter tracks
                         if (len(np.unique(step_sizes)) > 0):   ## TODO fix this so it checks whether the largest diff. is > mindiff
 
-                            track_data_filtered = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.min_ts_resolution) #0.005)
+                            track_data_filtered = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution) #0.005)
                             #save the new, filtered CSVs
                             track_data_filtered.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv", sep='\t')
                             track_data = track_data_filtered.to_numpy()
@@ -841,6 +922,10 @@ class trajectory_analysis:
                             track_data = track_data_df.to_numpy()
                 else:
                     track_data = track_data_df.to_numpy()
+
+                if (len(track_data) == 0):
+                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after filtering.\n")
+                    continue
 
                 #for this movie, calcuate msd and diffusion for each track
                 msd_diff_obj.set_track_data(track_data)
@@ -909,8 +994,8 @@ class trajectory_analysis:
                     msd_diff_obj.save_fit_data(file_name=file_str + '_' + str(index) + "_Dlin.txt")
 
                 full_data_i += len(cur_data)
-
-            self.log.flush()
+                self.log.write("Processed "+str(index) +" "+cur_file+" for MSD and Diffusion coeff.\n")
+                self.log.flush()
 
         self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
 

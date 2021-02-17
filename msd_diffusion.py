@@ -111,6 +111,7 @@ class msd_diffusion:
     def step_sizes_and_angles(self):
         # calculates step sizes and angles for tracks with min. length that is given for Linear fit
         ids = self.track_lengths[self.track_lengths[:,1] >= self.min_track_len_step_size][:,0]
+        print("SS/Angles number of tracks:", len(ids))
         track_lens=self.track_lengths[self.track_lengths[:,1] >= self.min_track_len_step_size][:,1]
 
         #rows correspond to t-lag==1,2,3,4,5, columns list the step sizes
@@ -158,6 +159,7 @@ class msd_diffusion:
     def msd_all_tracks(self):
         # for each track, do MSD calculation
         ids = np.unique(self.tracks[:,self.tracks_id_col])
+        print("MSD number of tracks:", len(ids))
         self.msd_tracks = np.zeros((len(self.tracks),self.msd_num_cols), )
         i=0
         for id in ids:
@@ -187,6 +189,7 @@ class msd_diffusion:
             valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_linfit-1))]
 
             ids = np.unique(valid_tracks[:,self.msd_id_col])
+            print("Deff number of tracks:", len(ids))
             self.D_linfits = np.zeros((len(ids),self.D_lin_num_cols,))
             for i,id in enumerate(ids):
                 cur_track = valid_tracks[np.where(valid_tracks[:, self.msd_id_col] == id)]
