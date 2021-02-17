@@ -21,12 +21,14 @@ def read_movie_metadata_tif(file_name):
         for item in metadata_list:
             if(item.startswith("dCalibration = ")):
                 cal=float(item[15:])
-            if(item.startswith("dMinPeriodDiff = ")):
-                time_step_min=int(round(float(item[17:]), 0))
-            if (item.startswith("dMaxPeriodDiff = ")):
-                time_step_max = int(round(float(item[17:]), 0))
-            if (item.startswith("dAvgPeriodDiff = ")):
-                time_step_ave = int(round(float(item[17:]), 0))
+            # if(item.startswith("dMinPeriodDiff = ")):
+            #     time_step_min=int(round(float(item[17:]), 0))
+            # if (item.startswith("dMaxPeriodDiff = ")):
+            #     time_step_max = int(round(float(item[17:]), 0))
+            # if (item.startswith("dAvgPeriodDiff = ")):
+            #     time_step_ave = int(round(float(item[17:]), 0))
+            if(item.startswith("Exposure = ")):
+                exposure = int(round(float(item[11:]), 0))
             #print(item)
             if(item.startswith("timestamp #")):
                 mo=re.match(r'timestamp #(\d+) = (.+)', item)
@@ -37,15 +39,9 @@ def read_movie_metadata_tif(file_name):
         steps = np.round(steps, 3)
 
         # convert from ms to s
-        time_step_ave = time_step_ave / 1000
+        exposure = exposure / 1000
 
-        if(time_step_min == time_step_max):
-            return (cal, time_step_ave, [])
-        else:
-            if(max(steps) > 1): # indicates time step info is invalid, > 1000ms between steps is being reported
-                return (cal, time_step_ave, [])
-            else:
-                return (cal, time_step_ave, steps)
+        return [cal, exposure, steps]
 
 # def read_movie_metadata(file_name):
 #     try:
@@ -102,9 +98,11 @@ def filter_tracks(track_data, min_len, time_steps, min_resolution):
     return track_data_cp
 
 class trajectory_analysis:
-    def __init__(self, data_file, results_dir='.', use_movie_metadata=False, movie_file_is_dir=True, log_file=''):
+    def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
+                 movie_file_is_dir=True, log_file=''):
         self.get_calibration_from_metadata=use_movie_metadata
         self.calibration_from_metadata={}
+        self.filter_for_uneven_time_steps=uneven_time_steps
         self.read_movie_file_as_dir=movie_file_is_dir  # movie file is a dir, get name from csv file name
                                                            # if false, movie file is a file name
 
@@ -183,11 +181,13 @@ class trajectory_analysis:
 
                     ret_val = read_movie_metadata_tif(movie_file)
                     if (ret_val):
+                        if(not self.filter_for_uneven_time_steps):
+                            ret_val[2] = []  # do not use time step info
+
                         self.calibration_from_metadata[ind] = ret_val
-                        self.log.write(
-                            f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, ave-time-step={ret_val[1]}\n") #{}\n")
+                        self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
                         if(len(ret_val[2]) > 0):
-                            self.log.write(f"Full time step list: min={np.min(ret_val[1])}, {ret_val[2]}\n")
+                            self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
                     else:
                         self.calibration_from_metadata[ind] = ''
                         self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
@@ -209,6 +209,7 @@ class trajectory_analysis:
     def write_params_to_log_file(self):
         self.log.write("Run paramters:\n")
         self.log.write(f"Read calibration from metadata: {self.get_calibration_from_metadata}\n")
+        self.log.write(f"Filter for uneven time steps: {self.filter_for_uneven_time_steps}\n")
         self.log.write(f"Min. time step resolution: {self.ts_resolution}\n")
         self.log.write(f"Time between frames (s): {self.time_step}\n")
         self.log.write(f"Scale (microns per px): {self.micron_per_px}\n")
@@ -754,13 +755,13 @@ class trajectory_analysis:
 
                     if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
                         m_px=self.calibration_from_metadata[index][0]
-                        ave_step_size=self.calibration_from_metadata[index][1]
+                        exposure=self.calibration_from_metadata[index][1]
                         step_sizes=self.calibration_from_metadata[index][2]
                         msd_diff_obj.micron_per_px=m_px
                         if(len(step_sizes)>0):
                             msd_diff_obj.time_step=np.min(step_sizes)
                         else:
-                            msd_diff_obj.time_step=ave_step_size
+                            msd_diff_obj.time_step=exposure
 
                         # if we have varying step sizes, must filter tracks
                         if (len(np.unique(step_sizes)) > 0):  ## TODO fix this so it checks whether the largest diff. is > mindiff
@@ -903,13 +904,13 @@ class trajectory_analysis:
 
                     if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
                         m_px = self.calibration_from_metadata[index][0]
-                        ave_step_size = self.calibration_from_metadata[index][1]
+                        exposure = self.calibration_from_metadata[index][1]
                         step_sizes = self.calibration_from_metadata[index][2]
                         msd_diff_obj.micron_per_px = m_px
                         if (len(step_sizes) > 0):
                             msd_diff_obj.time_step = np.min(step_sizes)
                         else:
-                            msd_diff_obj.time_step = ave_step_size
+                            msd_diff_obj.time_step = exposure
 
                         #if we have varying step sizes, must filter tracks
                         if (len(np.unique(step_sizes)) > 0):   ## TODO fix this so it checks whether the largest diff. is > mindiff

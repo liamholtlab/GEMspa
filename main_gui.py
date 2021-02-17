@@ -76,12 +76,13 @@ class RunDialog(wx.Dialog):
         self.text_ctrl_run_params=[]
         for i,param in enumerate(params_list):
             wx.StaticText(panel, label=param, pos=(10,start_y+i*spacing))
-            self.text_ctrl_run_params.append(wx.TextCtrl(panel, id=wx.ID_ANY, value=str(default_values[i]), pos=(250, start_y+i*spacing)))
+            self.text_ctrl_run_params.append(wx.TextCtrl(panel, id=wx.ID_ANY, value=str(default_values[i]), pos=(300, start_y+i*spacing)))
 
         next_start=start_y+(i+1)*spacing+25
         self.read_movie_metadata_chk = wx.CheckBox(panel, label="Use movie files to read scale/time-step", pos=(10, next_start))
-        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(10, next_start+35))
-        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(150, next_start+35))
+        self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+35))
+        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(10, next_start+70))
+        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(150, next_start+70))
 
     def get_save_dir(self):
         return self.chosen_dir.GetPath()
@@ -89,6 +90,8 @@ class RunDialog(wx.Dialog):
         return self.chosen_file.GetPath()
     def read_movie_metadata(self):
         return self.read_movie_metadata_chk.IsChecked()
+    def uneven_time_steps(self):
+        return self.uneven_time_steps_chk.IsChecked()
 
     def get_time_step(self):
         return float(self.text_ctrl_run_params[0].GetValue())
@@ -437,6 +440,7 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                 save_results_dir = dlg.get_save_dir()
                 input_file = dlg.get_filepath()
                 read_movie_metadata = dlg.read_movie_metadata()
+                uneven_time_steps = dlg.uneven_time_steps()
 
                 if(not save_results_dir or not input_file):
                     wx.MessageDialog(self, "Please do not leave the results directory or the file name blank.  Cannot run analysis.").ShowModal()
@@ -444,12 +448,10 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     self.statusbar.SetStatusText('Please wait, running analysis...')
 
                     # run the analysis
-                    #def __init__(self, data_file, results_dir='.', use_movie_metadata=False, movie_file_is_dir=True, log_file=''):
-                    if (read_movie_metadata):
-                        # time step and micron per px is read from the movie files' metatdata
-                        traj_an = tja.trajectory_analysis(input_file, save_results_dir, True, False) # TODO set final argument to True for future version
-                    else:
-                        traj_an = tja.trajectory_analysis(input_file, save_results_dir, False)
+                    #def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
+                    # movie_file_is_dir=True, log_file=''):
+                    traj_an = tja.trajectory_analysis(input_file, save_results_dir,
+                                                      read_movie_metadata, uneven_time_steps, False) # TODO set last arg to TRUE
 
                     traj_an.time_step = dlg.get_time_step()
                     traj_an.micron_per_px = dlg.get_micron_per_px()
