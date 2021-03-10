@@ -1,13 +1,11 @@
-
-
-
+from matplotlib import cm
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from scipy import stats
 import os
-from skimage import img_as_ubyte
+from skimage import img_as_ubyte, io
 
 def reshape_to_rgb(grey_img):
     # makes single color channel image into rgb
@@ -96,6 +94,7 @@ class msd_diffusion:
 
     def fill_track_sizes(self):
         # add column to tracks array containing the step size for each step of each track (distance between points)
+        # step size in *microns*
         self.tracks = np.append(self.tracks, np.zeros((len(self.tracks),1)), axis=1)
         ids = np.unique(self.tracks[:, self.tracks_id_col])
         ss_i=0
@@ -105,11 +104,12 @@ class msd_diffusion:
             for j in range(1,len(cur_track),1):
                 d = np.sqrt((cur_track[j, self.tracks_x_col] - cur_track[j-1, self.tracks_x_col]) ** 2 +
                         (cur_track[j, self.tracks_y_col] - cur_track[j-1, self.tracks_y_col]) ** 2)
-                self.tracks[ss_i,self.tracks_step_size_col] = d
+                self.tracks[ss_i,self.tracks_step_size_col] = d * self.micron_per_px
                 ss_i+=1
 
     def step_sizes_and_angles(self):
         # calculates step sizes and angles for tracks with min. length that is given for Linear fit
+        # steps sizes in *microns*
         ids = self.track_lengths[self.track_lengths[:,1] >= self.min_track_len_step_size][:,0]
         print("SS/Angles number of tracks:", len(ids))
         track_lens=self.track_lengths[self.track_lengths[:,1] >= self.min_track_len_step_size][:,1]
@@ -292,6 +292,8 @@ class msd_diffusion:
         to_plot = self.step_sizes[tlag-1,:]
         to_plot = to_plot[np.logical_not(np.isnan(to_plot))]
         plt.hist(to_plot, bins=np.arange(0,np.max(to_plot),0.1))
+        plt.xlabel("microns")
+        plt.ylabel("count")
         plt.savefig(self.save_dir + '/' + file_name)
         plt.clf()
 
@@ -337,23 +339,31 @@ class msd_diffusion:
         plt.savefig(self.save_dir + '/' + file_name[:-(len(ext))] + "_kde" + ext)
         plt.clf()
 
-    def save_tracks_to_img_ss(self, ax):
-        from matplotlib import cm
+    def save_tracks_to_img_ss(self, ax, min_ss=0, max_ss=5, lw=0.1):
+        # min_ss/max_ss are in microns (not pixels)
 
-        max_ss=np.max(self.tracks[:,self.tracks_step_size_col])
         ids = np.unique(self.tracks[:, self.tracks_id_col])
+        count=0
         for id in ids:
             cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
-            for step_i in range(1,len(cur_track),1):
-                show_color = cur_track[step_i,self.tracks_step_size_col] / max_ss
+            if (len(cur_track) >= self.min_track_len_step_size):
 
-                ax.plot([cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
-                        [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
-                        '-', color=cm.jet(show_color), linewidth=0.4)  # 0.25)
+                for step_i in range(1,len(cur_track),1):
+                    cur_ss=cur_track[step_i,self.tracks_step_size_col]
+                    if (cur_ss < min_ss):
+                        cur_ss = min_ss
+                    if (cur_ss > max_ss):
+                        cur_ss = max_ss
 
-    def save_tracks_to_img(self, ax, len_cutoff='default', max_Deff=0.5, lw=0.4):
-        from matplotlib import cm
+                    show_color=cur_ss/max_ss
 
+                    ax.plot([cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
+                            [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
+                            '-', color=cm.jet(show_color), linewidth=lw)
+                    count += 1
+        # print(count, " tracks plotted.")
+
+    def save_tracks_to_img(self, ax, len_cutoff='none', remove_tracks=False, min_Deff=0.01, max_Deff=2, lw=0.1):
         if(len_cutoff == 'default'):
             len_cutoff=self.track_len_cutoff_linfit
 
@@ -370,15 +380,53 @@ class msd_diffusion:
                     y_vals = cur_track[:, self.tracks_y_col]
 
                 D = self.D_linfits[self.D_linfits[:,self.D_lin_id_col]==id][0,self.D_lin_D_col]
+                if(remove_tracks and (D < min_Deff or D > max_Deff)):
+                    continue
+                else:
+                    if (D < min_Deff):
+                        D = min_Deff
+                    if (D > max_Deff):
+                        D = max_Deff
 
+                    show_color=D/max_Deff
+                    ax.plot(x_vals, y_vals, '-', color=cm.jet(show_color), linewidth=lw)
+                    count+=1
+        #print(count, " tracks plotted.")
 
-                show_color=D/max_Deff
-                if(show_color>1):
-                    print("need to raise max_D, ",D)
-                    show_color=1
-                ax.plot(x_vals,y_vals,'-',color=cm.jet(show_color),linewidth=lw) #0.25)
-                count+=1
-        print(count, " tracks plotted.")
+    def rainbow_tracks(self, img_file, output_file, len_cutoff='none', remove_tracks=False, min_Deff=0.01, max_Deff=2, lw=0.1):
+        # given img file, plots tracks on img
+        bk_img = io.imread(img_file)
+
+        # plot figure to draw tracks with image in background
+        fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+        ax = fig.add_subplot(1, 1, 1)
+        ax.axis("off")
+        ax.imshow(bk_img, cmap="gray")
+
+        self.save_tracks_to_img(ax, len_cutoff=len_cutoff, remove_tracks=remove_tracks, min_Deff=min_Deff, max_Deff=max_Deff, lw=lw)
+
+        # save figure of lines plotted on bk_img
+        fig.tight_layout()
+        fig.savefig(output_file, dpi=500)  # 1000
+        plt.close(fig)
+
+    def rainbow_tracks_ss(self, img_file, output_file, min_ss=0, max_ss=5, lw=0.1):
+        # min_ss/max_ss are in microns (not pixels)
+        # given img file, plots tracks on img
+        bk_img = io.imread(img_file)
+
+        # plot figure to draw tracks with image in background
+        fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+        ax = fig.add_subplot(1, 1, 1)
+        ax.axis("off")
+        ax.imshow(bk_img, cmap="gray")
+
+        self.save_tracks_to_img_ss(ax, min_ss=min_ss, max_ss=max_ss, lw=lw)
+
+        # save figure of lines plotted on bk_img
+        fig.tight_layout()
+        fig.savefig(output_file, dpi=500)  # 1000
+        plt.close(fig)
 
 
     # def save_angle_autocorr(self, file_name="angles_autocorr.pdf"):
@@ -402,178 +450,180 @@ class msd_diffusion:
     #     # plt.savefig(self.save_dir + '/0_' + file_name)
     #     # plt.clf()
 
-test1=False
-test2=False
-test3=False
 
-from nd2reader import ND2Reader
-def read_movie_metadata(file_name):
-    try:
-        with ND2Reader(file_name) as images:
-            steps = images.timesteps[1:] - images.timesteps[:-1]
-            steps = np.round(steps, 0)
-            #convert steps from ms to s
-            steps=steps/1000
-            microns_per_pixel=images.metadata['pixel_microns']
-            return (microns_per_pixel,steps)
-    except FileNotFoundError as e:
-        return None
-
-def filter_tracks(track_data, min_len, time_steps, min_resolution):
-    correct_ts = np.min(time_steps)
-    traj_ids = np.unique(track_data['Trajectory'])
-    track_data_cp=track_data.copy()
-    track_data_cp['Remove']=True
-    for traj_id in traj_ids:
-        cur_track = track_data[track_data['Trajectory']==traj_id].copy()
-        if(len(cur_track) >= min_len):
-            new_seg=True
-            longest_seg_start = cur_track.index[0]
-            longest_seg_len = 0
-            for row_i, row in enumerate(cur_track.iterrows()):
-                if(row_i > 0):
-                    if(new_seg):
-                        cur_seg_start=row[0]-1
-                        cur_seg_len=0
-                        new_seg=False
-
-                    fr=row[1]['Frame']
-                    cur_ts = time_steps[int(fr-1)]
-                    if((cur_ts - correct_ts) <= min_resolution):
-                        #keep going
-                        cur_seg_len+=1
-                    else:
-                        if(cur_seg_len > longest_seg_len):
-                            longest_seg_len=cur_seg_len
-                            longest_seg_start = cur_seg_start
-                            new_seg=True
-            if(not new_seg):
-                if (cur_seg_len > longest_seg_len):
-                    longest_seg_len = cur_seg_len
-                    longest_seg_start = cur_seg_start
-
-            if(longest_seg_len >= min_len):
-                # add track segment to new DF - check # 10
-                track_data_cp.loc[longest_seg_start:longest_seg_start+longest_seg_len,'Remove']=False
-
-    track_data_cp = track_data_cp[track_data_cp['Remove']==False]
-    track_data_cp.index=range(len(track_data_cp))
-    track_data_cp = track_data_cp.drop('Remove', axis=1)
-    return track_data_cp
-
-if(test3):
-    dir_results = "/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/For MOISAIC analysis/testing_results"
-    csv_file="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/For MOISAIC analysis/Traj_rim15 -C stavation 4h-1.nd2_crop.csv"
-    movie_file="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/rim15 -C stavation 4h-1.nd2"
-
-    ret = read_movie_metadata(movie_file)
-
-    track_data_df = pd.read_csv(csv_file)
-    track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
-
-    if(len(np.unique(ret[1])) > 0):
-        track_data_filtered = filter_tracks(track_data_df, 11, ret[1], 0.005)
-        track_data_filtered.to_csv(dir_results + "/" + os.path.split(csv_file)[1][:-4] + "_filtered.csv")
-        track_data = track_data_filtered.to_numpy()
-    else:
-        track_data = track_data_df.to_numpy()
-
-    msd_diff_obj = msd_diffusion()
-    msd_diff_obj.save_dir = dir_results
-
-    print("Base time step:", np.min(ret[1]))
-    print("Micron per pixel:", ret[0])
-    msd_diff_obj.time_step = np.min(ret[1])
-    msd_diff_obj.micron_per_px = ret[0]
-
-    msd_diff_obj.set_track_data(track_data)
-    msd_diff_obj.step_sizes_and_angles()
-
-    msd_diff_obj.msd_all_tracks()
-    msd_diff_obj.fit_msd()
-
-    msd_diff_obj.save_msd_data(file_name=os.path.split(csv_file)[1][:-4] + "_MSD.txt")
-    df=msd_diff_obj.save_fit_data(file_name=os.path.split(csv_file)[1][:-4] + "_Dlin.txt")
-    msd_diff_obj.save_step_sizes(file_name=os.path.split(csv_file)[1][:-4] + "_step_sizes.txt")
-
-    print(np.median(df['D']))
-
-if(test1):
-    dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/GEMs/for_presentation"
-
-    #file_="Traj_GBC1_3W_0min_GEM_6_cyto.tif.csv"
-    #suffix = '3W_0hr'  # med(D) = 0.54
-    #ym = -1
-
-    #file_ = "Traj_GBC1_3W_5_hour_GEM_4_cyto.tif.csv"
-    #suffix='3W_5hr' # med(D) = 0.04
-    #ym = -1
-
-    file_="GBC1_4_cyto.csv"
-    suffix = 'CTRL' # med(D) = 0.18
-    ym = 0.4
-
-    track_data_df = pd.read_csv(dir_ + '/' + file_)
-    track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
-    track_data = track_data_df.to_numpy()
-
-    msd_diff = msd_diffusion()
-    msd_diff.set_track_data(track_data)
-    msd_diff.step_sizes_and_angles()
-
-    msd_diff.msd_all_tracks()
-    msd_diff.fit_msd()
-
-    msd_diff.save_dir = dir_ + '/results_'+suffix
-
-    msd_diff.save_angles()
-    msd_diff.save_step_sizes()
-
-    msd_diff.save_msd_data()
-    df=msd_diff.save_fit_data()
-    print(np.median(df['D']))
-    msd_diff.save_track_length_hist()
-    msd_diff.save_step_size_hist("step_sizes1.pdf",1)
-
-
-    msd_diff.save_step_size_hist("step_sizes2.pdf", 2)
-    msd_diff.save_step_size_hist("step_sizes3.pdf", 3)
-    # msd_diff.save_step_size_hist("step_sizes4.pdf", 4)
-    # msd_diff.save_step_size_hist("step_sizes5.pdf", 5)
-
-    #msd_diff.save_angle_hist("angles1.pdf", 1)
-    #msd_diff.save_angle_hist("angles2.pdf", 2)
-    #msd_diff.save_angle_hist("angles3.pdf", 3)
-
-    #msd_diff.save_angle_hist("angles4.pdf", 4)
-    #msd_diff.save_angle_hist("angles5.pdf", 5)
-
-    msd_diff.plot_msd_curves(ymax=ym, max_tracks=30)
-
-    msd_diff.save_D_histogram("Deff.pdf")
-
-if(test2):
-    dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/tamas-20201218_HeLa_hPNE_nucPfV_NPM1_clones/tracks/"
-    file_name='Traj_02_WT_hPNE_nucPfV_010_01.csv'
-
-    track_data_df = pd.read_csv(dir_ + '/' + file_name)
-    track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
-    track_data = track_data_df.to_numpy()
-
-    msd_diff = msd_diffusion()
-    msd_diff.micron_per_px=0.1527
-    msd_diff.time_step=0.010
-    msd_diff.set_track_data(track_data)
-
-    msd_diff.msd_all_tracks()
-    msd_diff.fit_msd()
-
-    msd_diff.save_dir = dir_ + '/results'
-
-    msd_diff.save_msd_data()
-    df = msd_diff.save_fit_data()
-    print(np.median(df['D']))
-
+#
+# test1=False
+# test2=False
+# test3=False
+#
+# from nd2reader import ND2Reader
+# def read_movie_metadata(file_name):
+#     try:
+#         with ND2Reader(file_name) as images:
+#             steps = images.timesteps[1:] - images.timesteps[:-1]
+#             steps = np.round(steps, 0)
+#             #convert steps from ms to s
+#             steps=steps/1000
+#             microns_per_pixel=images.metadata['pixel_microns']
+#             return (microns_per_pixel,steps)
+#     except FileNotFoundError as e:
+#         return None
+#
+# def filter_tracks(track_data, min_len, time_steps, min_resolution):
+#     correct_ts = np.min(time_steps)
+#     traj_ids = np.unique(track_data['Trajectory'])
+#     track_data_cp=track_data.copy()
+#     track_data_cp['Remove']=True
+#     for traj_id in traj_ids:
+#         cur_track = track_data[track_data['Trajectory']==traj_id].copy()
+#         if(len(cur_track) >= min_len):
+#             new_seg=True
+#             longest_seg_start = cur_track.index[0]
+#             longest_seg_len = 0
+#             for row_i, row in enumerate(cur_track.iterrows()):
+#                 if(row_i > 0):
+#                     if(new_seg):
+#                         cur_seg_start=row[0]-1
+#                         cur_seg_len=0
+#                         new_seg=False
+#
+#                     fr=row[1]['Frame']
+#                     cur_ts = time_steps[int(fr-1)]
+#                     if((cur_ts - correct_ts) <= min_resolution):
+#                         #keep going
+#                         cur_seg_len+=1
+#                     else:
+#                         if(cur_seg_len > longest_seg_len):
+#                             longest_seg_len=cur_seg_len
+#                             longest_seg_start = cur_seg_start
+#                             new_seg=True
+#             if(not new_seg):
+#                 if (cur_seg_len > longest_seg_len):
+#                     longest_seg_len = cur_seg_len
+#                     longest_seg_start = cur_seg_start
+#
+#             if(longest_seg_len >= min_len):
+#                 # add track segment to new DF - check # 10
+#                 track_data_cp.loc[longest_seg_start:longest_seg_start+longest_seg_len,'Remove']=False
+#
+#     track_data_cp = track_data_cp[track_data_cp['Remove']==False]
+#     track_data_cp.index=range(len(track_data_cp))
+#     track_data_cp = track_data_cp.drop('Remove', axis=1)
+#     return track_data_cp
+#
+# if(test3):
+#     dir_results = "/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/For MOISAIC analysis/testing_results"
+#     csv_file="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/For MOISAIC analysis/Traj_rim15 -C stavation 4h-1.nd2_crop.csv"
+#     movie_file="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/rim15 -C stavation 4h-1.nd2"
+#
+#     ret = read_movie_metadata(movie_file)
+#
+#     track_data_df = pd.read_csv(csv_file)
+#     track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
+#
+#     if(len(np.unique(ret[1])) > 0):
+#         track_data_filtered = filter_tracks(track_data_df, 11, ret[1], 0.005)
+#         track_data_filtered.to_csv(dir_results + "/" + os.path.split(csv_file)[1][:-4] + "_filtered.csv")
+#         track_data = track_data_filtered.to_numpy()
+#     else:
+#         track_data = track_data_df.to_numpy()
+#
+#     msd_diff_obj = msd_diffusion()
+#     msd_diff_obj.save_dir = dir_results
+#
+#     print("Base time step:", np.min(ret[1]))
+#     print("Micron per pixel:", ret[0])
+#     msd_diff_obj.time_step = np.min(ret[1])
+#     msd_diff_obj.micron_per_px = ret[0]
+#
+#     msd_diff_obj.set_track_data(track_data)
+#     msd_diff_obj.step_sizes_and_angles()
+#
+#     msd_diff_obj.msd_all_tracks()
+#     msd_diff_obj.fit_msd()
+#
+#     msd_diff_obj.save_msd_data(file_name=os.path.split(csv_file)[1][:-4] + "_MSD.txt")
+#     df=msd_diff_obj.save_fit_data(file_name=os.path.split(csv_file)[1][:-4] + "_Dlin.txt")
+#     msd_diff_obj.save_step_sizes(file_name=os.path.split(csv_file)[1][:-4] + "_step_sizes.txt")
+#
+#     print(np.median(df['D']))
+#
+# if(test1):
+#     dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/GEMs/for_presentation"
+#
+#     #file_="Traj_GBC1_3W_0min_GEM_6_cyto.tif.csv"
+#     #suffix = '3W_0hr'  # med(D) = 0.54
+#     #ym = -1
+#
+#     #file_ = "Traj_GBC1_3W_5_hour_GEM_4_cyto.tif.csv"
+#     #suffix='3W_5hr' # med(D) = 0.04
+#     #ym = -1
+#
+#     file_="GBC1_4_cyto.csv"
+#     suffix = 'CTRL' # med(D) = 0.18
+#     ym = 0.4
+#
+#     track_data_df = pd.read_csv(dir_ + '/' + file_)
+#     track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
+#     track_data = track_data_df.to_numpy()
+#
+#     msd_diff = msd_diffusion()
+#     msd_diff.set_track_data(track_data)
+#     msd_diff.step_sizes_and_angles()
+#
+#     msd_diff.msd_all_tracks()
+#     msd_diff.fit_msd()
+#
+#     msd_diff.save_dir = dir_ + '/results_'+suffix
+#
+#     msd_diff.save_angles()
+#     msd_diff.save_step_sizes()
+#
+#     msd_diff.save_msd_data()
+#     df=msd_diff.save_fit_data()
+#     print(np.median(df['D']))
+#     msd_diff.save_track_length_hist()
+#     msd_diff.save_step_size_hist("step_sizes1.pdf",1)
+#
+#
+#     msd_diff.save_step_size_hist("step_sizes2.pdf", 2)
+#     msd_diff.save_step_size_hist("step_sizes3.pdf", 3)
+#     # msd_diff.save_step_size_hist("step_sizes4.pdf", 4)
+#     # msd_diff.save_step_size_hist("step_sizes5.pdf", 5)
+#
+#     #msd_diff.save_angle_hist("angles1.pdf", 1)
+#     #msd_diff.save_angle_hist("angles2.pdf", 2)
+#     #msd_diff.save_angle_hist("angles3.pdf", 3)
+#
+#     #msd_diff.save_angle_hist("angles4.pdf", 4)
+#     #msd_diff.save_angle_hist("angles5.pdf", 5)
+#
+#     msd_diff.plot_msd_curves(ymax=ym, max_tracks=30)
+#
+#     msd_diff.save_D_histogram("Deff.pdf")
+#
+# if(test2):
+#     dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/tamas-20201218_HeLa_hPNE_nucPfV_NPM1_clones/tracks/"
+#     file_name='Traj_02_WT_hPNE_nucPfV_010_01.csv'
+#
+#     track_data_df = pd.read_csv(dir_ + '/' + file_name)
+#     track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
+#     track_data = track_data_df.to_numpy()
+#
+#     msd_diff = msd_diffusion()
+#     msd_diff.micron_per_px=0.1527
+#     msd_diff.time_step=0.010
+#     msd_diff.set_track_data(track_data)
+#
+#     msd_diff.msd_all_tracks()
+#     msd_diff.fit_msd()
+#
+#     msd_diff.save_dir = dir_ + '/results'
+#
+#     msd_diff.save_msd_data()
+#     df = msd_diff.save_fit_data()
+#     print(np.median(df['D']))
+#
 
 
 

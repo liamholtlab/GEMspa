@@ -12,21 +12,66 @@ import datetime
 import re
 from tifffile import TiffFile
 from nd2reader import ND2Reader
+from skimage import io, draw
+from read_roi import read_roi_zip
+from read_roi import read_roi_file
+
+
+def limit_tracks_given_mask(mask_image, track_data):
+    # loop through tracks, only use tracks that are fully within the ROI areas (all posiitons evaluate to 1)
+    track_labels_full = np.zeros((len(track_data), 2))
+    valid_id_list = []
+    # 0: id, 1: label, 2: 0/1 inside an ROI
+    id = track_data[0][0]
+    prev_pos = 0
+    for pos_i, pos in enumerate(track_data):
+        if (pos[0] != id):
+            if ((len(np.unique(track_labels_full[prev_pos:pos_i, 1])) == 1) and (
+                    track_labels_full[pos_i - 1][1] != 0)):
+                valid_id_list.append(id)
+            id = pos[0]
+            prev_pos = pos_i
+
+        label = mask_image[int(pos[3])][int(pos[2])]
+        track_labels_full[pos_i][0] = pos[0]
+        track_labels_full[pos_i][1] = label
+
+    # check final track
+    pos_i = pos_i + 1
+    if ((len(np.unique(track_labels_full[prev_pos:pos_i, 1])) == 1) and (
+            track_labels_full[pos_i - 1][1] != 0)):
+        valid_id_list.append(id)
+
+    valid_id_list = np.asarray(valid_id_list)
+    return valid_id_list
+
+def make_mask_from_roi(rois, img_shape):
+    # loop through ROIs, set interior of ROIs to 1, rest to 0
+    final_img = np.zeros(img_shape, dtype='uint8')
+    poly_error=False
+    for key in rois.keys():
+        roi = rois[key]
+        if (roi['type'] == 'polygon'):
+            col_coords = roi['x']
+            row_coords = roi['y']
+            rr, cc = draw.polygon(row_coords, col_coords)
+            final_img[rr, cc] = 1
+        else:
+            poly_error=True
+            continue
+    return (final_img, poly_error)
 
 def read_movie_metadata_tif(file_name):
     with TiffFile(file_name) as tif:
         metadata = tif.pages[0].tags['IJMetadata'].value
         metadata_list = metadata["Info"].split("\n")
         time_step_list=[]
+        exposure=''
+        cal=''
+        steps=[]
         for item in metadata_list:
             if(item.startswith("dCalibration = ")):
                 cal=float(item[15:])
-            # if(item.startswith("dMinPeriodDiff = ")):
-            #     time_step_min=int(round(float(item[17:]), 0))
-            # if (item.startswith("dMaxPeriodDiff = ")):
-            #     time_step_max = int(round(float(item[17:]), 0))
-            # if (item.startswith("dAvgPeriodDiff = ")):
-            #     time_step_ave = int(round(float(item[17:]), 0))
             if(item.startswith("Exposure = ")):
                 exposure = int(round(float(item[11:]), 0))
             #print(item)
@@ -37,23 +82,18 @@ def read_movie_metadata_tif(file_name):
         time_step_list=np.asarray(time_step_list)
         steps = time_step_list[1:] - time_step_list[:-1]
         steps = np.round(steps, 3)
-
         # convert from ms to s
         exposure = exposure / 1000
-
         return [cal, exposure, steps]
 
-# def read_movie_metadata(file_name):
-#     try:
-#         with ND2Reader(file_name) as images:
-#             steps = images.timesteps[1:] - images.timesteps[:-1]
-#             steps = np.round(steps, 0)
-#             #convert steps from ms to s
-#             steps=steps/1000
-#             microns_per_pixel=images.metadata['pixel_microns']
-#             return (microns_per_pixel,steps)
-#     except FileNotFoundError as e:
-#         return None
+def read_movie_metadata_nd2(file_name):
+    with ND2Reader(file_name) as images:
+        steps = images.timesteps[1:] - images.timesteps[:-1]
+        steps = np.round(steps, 0)
+        #convert steps from ms to s
+        steps=steps/1000
+        microns_per_pixel=images.metadata['pixel_microns']
+        return (microns_per_pixel,np.min(steps),steps)
 
 def filter_tracks(track_data, min_len, time_steps, min_resolution):
     correct_ts = np.min(time_steps)
@@ -99,12 +139,23 @@ def filter_tracks(track_data, min_len, time_steps, min_resolution):
 
 class trajectory_analysis:
     def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
-                 movie_file_is_dir=True, log_file=''):
+                 make_rainbow_tracks=True, limit_to_ROIs=False, img_file_prefix='DNA_', log_file=''):
+
         self.get_calibration_from_metadata=use_movie_metadata
+        self.uneven_time_steps = uneven_time_steps
+        self.make_rainbow_tracks = make_rainbow_tracks
+        self.limit_to_ROIs = limit_to_ROIs
+
         self.calibration_from_metadata={}
-        self.filter_for_uneven_time_steps=uneven_time_steps
-        self.read_movie_file_as_dir=movie_file_is_dir  # movie file is a dir, get name from csv file name
-                                                           # if false, movie file is a file name
+        self.valid_img_files = {}
+        self.valid_roi_files = {}
+
+        self.min_ss_rainbow_tracks=0
+        self.max_ss_rainbow_tracks=1
+        self.min_D_rainbow_tracks=0
+        self.max_D_rainbow_tracks=2
+
+        self.img_file_prefix = img_file_prefix
 
         self.time_step = 0.010  # time between frames, in seconds
         self.micron_per_px = 0.11
@@ -125,6 +176,9 @@ class trajectory_analysis:
         self.min_D_cutoff=0
         self.max_D_cutoff=2
 
+        self.cell_column = False # will be set to True if cell column found below
+        self.cell_column_name = "cell"
+
         self.results_dir = results_dir
         self.data_file = data_file
         if(log_file == ''):
@@ -139,9 +193,10 @@ class trajectory_analysis:
         self._index_col_name='id'
         self._dir_col_name='directory'
         self._file_col_name='file name'
-        self._movie_file_col_name='movie file name'
+        self._movie_file_col_name='movie file dir'
+        self._img_file_col_name='image file dir'
 
-        self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name, self._movie_file_col_name]
+        self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name, self._movie_file_col_name, self._img_file_col_name]
 
         #read in the data file, check for the required columns and identify the label columns
         self.error_in_data_file = False
@@ -153,44 +208,93 @@ class trajectory_analysis:
             if(col in col_names):
                 col_names.remove(col)
             else:
-                if(col != self.movie_file_col_name or (col == self.movie_file_col_name and self.get_calibration_from_metadata)):
+                if( (col != self._movie_file_col_name and col != self._img_file_col_name) or
+                    (col == self._movie_file_col_name and self.get_calibration_from_metadata) or
+                    (col == self._img_file_col_name and (self.make_rainbow_tracks or self.limit_to_ROIs)) ):
                     self.log.write(f"Error! Required column {col} not found in input file {self.data_file}\n")
                     self.error_in_data_file=True
                     break
 
         # read in the time step information from the movie files
         if(not self.error_in_data_file):
-            if(self.get_calibration_from_metadata):
+            if(self.get_calibration_from_metadata or self.make_rainbow_tracks or self.limit_to_ROIs):
                 # read in the movie files to get the meta data / record time steps
-                self.data_list[self._movie_file_col_name] = self.data_list[self._movie_file_col_name].fillna('')
+                if(self.get_calibration_from_metadata):
+                    self.data_list[self._movie_file_col_name] = self.data_list[self._movie_file_col_name].fillna('')
+                if(self.make_rainbow_tracks or self.limit_to_ROIs):
+                    self.data_list[self._img_file_col_name] = self.data_list[self._img_file_col_name].fillna('')
+                # TODO Set up extra column in maingui, connect so that the rainbow tracks are made and trajs limited to ROIs
                 for row in self.data_list.iterrows():
                     ind=row[1][self._index_col_name]
 
-                    if(self.read_movie_file_as_dir):
-                        #movie file is a dir, get name from csv file name
-                        #csv file: Traj_<movie_file_name>.csv # <prefix>_<movie_file_name>_<suffix>.csv
-                        csv_file=row[1][self._file_col_name]
+                    #get name from csv file name
+                    # csv file:           Traj_<file_name>.csv
+                    # nd2/tif movie file: <file_name>.tif or <file_name>.nd2
+                    # img file:           <PRE><file_name>.tif
+                    csv_file=row[1][self._file_col_name]
+
+                    if(self.make_rainbow_tracks or self.limit_to_ROIs):
+                        img_dir=row[1][self._img_file_col_name]
+                        img_file=img_dir+"/"+self.img_file_prefix+csv_file[5:-4] # Drop "Traj_" at beginning, add prefix, and drop ".csv" at end
+                        if (not img_file.endswith(".tif")):
+                            img_file = img_file + ".tif"
+                        if (os.path.isfile(img_file)):
+                            self.valid_img_files[ind] = img_file
+                        else:
+                            self.valid_img_files[ind] = ''
+                            self.log.write(f"Error! Image file not found: {img_file} for rainbow tracks/ROIs.\n")
+
+                        if(self.limit_to_ROIs):
+                            roi_file1=img_dir+"/"+self.img_file_prefix+csv_file[5:-4]
+                            roi_file2=img_dir + "/" + csv_file[5:-4]
+                            for roi_file in [roi_file1,roi_file2]:
+                                if(roi_file.endswith(".tif")):
+                                    roi_file=roi_file[:-4]
+                                if(os.path.isfile(roi_file+".roi")):
+                                    self.valid_roi_files[ind]=roi_file+".roi"
+                                    break
+                                elif(os.path.isfile(roi_file+".zip")):
+                                    self.valid_roi_files[ind]=roi_file+".zip"
+                                    break
+                            if(not (ind in self.valid_roi_files)):
+                                self.valid_roi_files[ind]=''
+                                self.log.write(f"Error! ROI file not found, tried: {roi_file1}.roi/zip and {roi_file2}.roi/.zip\n")
+
+                    if(self.get_calibration_from_metadata):
 
                         movie_dir=row[1][self._movie_file_col_name]
                         movie_file=movie_dir+"/" + csv_file[5:-4] # Drop "Traj_" at beginning and ".csv" at end
-                        if(not movie_file.endswith(".tif")): # Check it ends with tif
+
+                        #check first for .tif, then nd2
+                        if(not movie_file.endswith(".tif")):
                             movie_file = movie_file + ".tif"
-                        #csv_file[:-4]+".nd2"  ## TODO allow ND2?
-                    else: #movie file is a file name, add dir from dir column
-                        movie_file = row[1][self._dir_col_name] + '/' + row[1][self._movie_file_col_name]
+                        if(os.path.isfile(movie_file)):
+                            ret_val = read_movie_metadata_tif(movie_file)
+                            # some checks for reading from tiff files - since I'm not sure if the code will always work....!
+                            if(ret_val[0] == ''):
+                                ret_val[0]=self.micron_per_px
+                                self.log.write(f"Error! Micron per pixel could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                            if(ret_val[1] == ''):
+                                ret_val[1]=self.time_step
+                                self.log.write(f"Error! Time step could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                            if (len(ret_val[2]) == 0 and self.uneven_time_steps):
+                                self.log.write(f"Error! Full time step list could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                        else:
+                            movie_file = movie_dir + "/" + csv_file[5:-4] + ".nd2"
+                            if (os.path.isfile(movie_file)):
+                                ret_val = read_movie_metadata_nd2(movie_file)
+                            else:
+                                ret_val=None
+                                self.calibration_from_metadata[ind] = ''
+                                self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
+                        if(ret_val):
+                            if (not self.uneven_time_steps):
+                                ret_val[2] = []  # do not use full time step info / could be messed up anyway in case of tif file
 
-                    ret_val = read_movie_metadata_tif(movie_file)
-                    if (ret_val):
-                        if(not self.filter_for_uneven_time_steps):
-                            ret_val[2] = []  # do not use time step info
-
-                        self.calibration_from_metadata[ind] = ret_val
-                        self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
-                        if(len(ret_val[2]) > 0):
-                            self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
-                    else:
-                        self.calibration_from_metadata[ind] = ''
-                        self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
+                            self.calibration_from_metadata[ind] = ret_val
+                            self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
+                            if (len(ret_val[2]) > 0 and self.uneven_time_steps):
+                                self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
 
             # group by the label columns
             # set_index will throw ValueError if index col has repeats
@@ -198,9 +302,10 @@ class trajectory_analysis:
             self.label_columns = list(col_names)
             for col in self.label_columns:
                 self.data_list[col] = self.data_list[col].fillna('')
-            if("cell" in self.label_columns):
+            if(self.cell_column_name in self.label_columns):
                 self.cell_column=True
-                self.label_columns.remove("cell")
+                self.label_columns.remove(self.cell_column_name)
+
             self.grouped_data_list = self.data_list.groupby(self.label_columns)
             self.groups=list(self.grouped_data_list.groups.keys())
 
@@ -208,8 +313,10 @@ class trajectory_analysis:
 
     def write_params_to_log_file(self):
         self.log.write("Run paramters:\n")
+        self.log.write(f"Rainbow tracks: {self.make_rainbow_tracks}\n")
+        self.log.write(f"Filter with ROI file: {self.limit_to_ROIs}\n")
         self.log.write(f"Read calibration from metadata: {self.get_calibration_from_metadata}\n")
-        self.log.write(f"Filter for uneven time steps: {self.filter_for_uneven_time_steps}\n")
+        self.log.write(f"Filter for uneven time steps: {self.uneven_time_steps}\n")
         self.log.write(f"Min. time step resolution: {self.ts_resolution}\n")
         self.log.write(f"Time between frames (s): {self.time_step}\n")
         self.log.write(f"Scale (microns per px): {self.micron_per_px}\n")
@@ -220,6 +327,11 @@ class trajectory_analysis:
         self.log.write(f"Max Tau (step size/angles): {self.max_tlag_step_size}\n")
         self.log.write(f"Min D for plots: {self.min_D_cutoff}\n")
         self.log.write(f"Max D for plots: {self.max_D_cutoff}\n")
+
+        self.log.write(f"Max D for rainbow tracks: {self.max_D_rainbow_tracks}\n")
+        self.log.write(f"Max s for rainbow tracks: {self.max_ss_rainbow_tracks}\n")
+
+        self.log.write(f"Prefix for image file name: {self.img_file_prefix}\n")
 
         self.log.write(f"Results directory: {self.results_dir}\n")
         self.log.write(f"Data File: {self.data_file}\n")
@@ -259,72 +371,110 @@ class trajectory_analysis:
             labels.insert(0, l1)
         ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
 
-    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_combined=False):
-        self.data_list_with_step_sizes = pd.read_csv(self.results_dir + "/all_data_step_sizes.txt", index_col=0, sep='\t', low_memory=False)
-        start_pos = self.data_list_with_step_sizes.columns.get_loc("0")
-        stop_pos=len(self.data_list_with_step_sizes.columns) - start_pos - 1
+    def plot_distribution_Deff(self, plot_type='gkde', bin_size=0.02):
+        self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt", index_col=0, sep='\t', low_memory=False)
+
+        self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
+        self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        for group in np.unique(self.data_list_with_results_full['group_readable']):
+            group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
+
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
+
+            fig2 = plt.figure()
+            ax2 = fig2.add_subplot(1, 1, 1)
+            obs_dist = group_data['D']
+            plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+            if(plot_type == 'gkde'):
+                gkde = stats.gaussian_kde(obs_dist)
+                plotting_kdepdf = gkde.evaluate(plotting_ind)
+                ax2.plot(plotting_ind, plotting_kdepdf)
+            else:
+                ax2.hist(obs_dist, bins=plotting_ind, histtype="step", density=True)
+
+            ax2.set_xlabel("Deff")
+            ax2.set_ylabel("frequency")
+
+            fig2.savefig(self.results_dir + "/combined_" + str(group) + "_Deff_"+plot_type+".pdf")
+            fig2.clf()
+
+            #filter by file name
+            for id in np.unique(group_data["id"]):
+                cur_data = group_data[group_data["id"]==id]
+                obs_dist=cur_data['D']
+                plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+
+                if (plot_type == 'gkde'):
+                    gkde = stats.gaussian_kde(obs_dist)
+                    plotting_kdepdf = gkde.evaluate(plotting_ind)
+                    ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_data['file name'].iloc[0]))
+                else:
+                    ax.hist(obs_dist, bins=plotting_ind, histtype="step", density=True,
+                            label=str(cur_data['file name'].iloc[0]), alpha=0.6)
+
+            ax.set_xlabel("Deff")
+            ax.set_ylabel("frequency")
+            ax.legend()
+            fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
+            fig.clf()
+            plt.close(fig)
+
+    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_type='gkde', bin_size=0.01):
+        self.data_list_with_step_sizes_full = pd.read_csv(self.results_dir + "/all_data_step_sizes.txt", index_col=0, sep='\t', low_memory=False)
+        start_pos = self.data_list_with_step_sizes_full.columns.get_loc("0")
+        stop_pos=len(self.data_list_with_step_sizes_full.columns) - start_pos - 1
 
         tlags_ = []
         for tlag in tlags:
-            if(tlag in np.unique(self.data_list_with_step_sizes['tlag'])):
+            if(tlag in np.unique(self.data_list_with_step_sizes_full['tlag'])):
                 tlags_.append(tlag)
 
-        for group in np.unique(self.data_list_with_step_sizes['group_readable']):
-            group_data = self.data_list_with_step_sizes[self.data_list_with_step_sizes['group_readable'] == group]
+        for group in np.unique(self.data_list_with_step_sizes_full['group_readable']):
+            group_data = self.data_list_with_step_sizes_full[self.data_list_with_step_sizes_full['group_readable'] == group]
 
-            # get max step size for each tlag
-            max_step_size = {}
             for tlag in tlags_:
-                cur_data = group_data[group_data['tlag'] == tlag]
-                cur_data = cur_data.loc[:, "0":str(stop_pos)].transpose()
-                max_step_size[tlag] = cur_data.max().max()
-
-            for tlag in tlags_:  # cur_kde_data['tlag']:
                 fig = plt.figure()
                 ax = fig.add_subplot(1, 1, 1)
                 cur_tlag_data = group_data[group_data['tlag'] == tlag]
-                #to_combine_full=pd.DataFrame()
-                to_combine_2=[]
+
+                fig2 = plt.figure()
+                ax2 = fig2.add_subplot(1, 1, 1)
+                obs_dist = np.asarray(cur_tlag_data.loc[:, "0":str(stop_pos)]).flatten()
+                obs_dist = obs_dist[np.logical_not(np.isnan(obs_dist))]
+                plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+
+                if(plot_type == 'gkde'):
+                    gkde = stats.gaussian_kde(obs_dist)
+                    plotting_kdepdf = gkde.evaluate(plotting_ind)
+                    ax2.plot(plotting_ind, plotting_kdepdf)
+                else:
+                    ax2.hist(obs_dist, bins=plotting_ind, histtype="step", density=True)
+                ax2.set_xlabel("microns")
+                ax2.set_ylabel("frequency")
+
+                fig2.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_' + str(group) + '_steps_'+plot_type+'.pdf')
+                fig2.clf()
+
                 for id in cur_tlag_data['id'].unique():
                     cur_kde_data = cur_tlag_data[cur_tlag_data['id'] == id]
-
                     obs_dist=np.asarray(cur_kde_data.loc[:,"0":str(stop_pos)].iloc[0].dropna())
+                    plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
 
-                    # sns.kdeplot(data=obs_dist,ax=ax)
-                    gkde = stats.gaussian_kde(obs_dist)
-
-                    ind = np.arange(0, max_step_size[tlag] + 0.001, 0.001)
-                    kdepdf=gkde.evaluate(ind)
-                    to_combine_2.append(kdepdf)
-
-                    # to_combine=pd.DataFrame()
-                    # to_combine['y_val']=kdepdf
-                    # to_combine['x_val']=ind
-                    # to_combine['id']=id
-                    # to_combine_full=pd.concat([to_combine_full,to_combine])
-
-                    plotting_ind=np.arange(0, obs_dist.max()+0.001,0.001)
-                    plotting_kdepdf=gkde.evaluate(plotting_ind)
-                    ax.plot(plotting_ind, plotting_kdepdf)
+                    if(plot_type == 'gkde'):
+                        gkde = stats.gaussian_kde(obs_dist)
+                        plotting_kdepdf=gkde.evaluate(plotting_ind)
+                        ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_kde_data['file name'].iloc[0]))
+                    else:
+                        ax.hist(obs_dist, bins=plotting_ind, histtype="step", density=True,
+                                label=str(cur_kde_data['file name'].iloc[0]), alpha=0.6)
 
 
-                if(plot_combined):
-                    fig2 = plt.figure()
-                    ax2 = fig2.add_subplot(1, 1, 1)
-
-                    to_combine_2 = np.asarray(to_combine_2)
-                    medians = np.median(to_combine_2, axis=0)
-                    ax2.plot(ind, medians)
-                    #errs = stats.sem(to_combine_2, axis=0)
-                    errs=np.std(to_combine_2, axis=0)
-                    ax2.fill_between(ind, medians-errs, medians+errs, alpha=0.4)
-
-                    #sns.lineplot(x="x_val",y="y_val",data=to_combine_full, estimator=np.median, ci="sd", ax=ax2)
-
-                    fig2.savefig(self.results_dir + '/summary_tlag' + str(tlag) + '_' + str(group) + '_steps.pdf')
-                    fig2.clf()
-
-                fig.savefig(self.results_dir + '/all_tlag'+str(tlag)+'_'+str(group)+'_steps.pdf')
+                ax.set_xlabel("microns")
+                ax.set_ylabel("frequency")
+                ax.legend()
+                fig.savefig(self.results_dir + '/all_tlag'+str(tlag)+'_'+str(group)+'_steps_'+plot_type+'.pdf')
                 fig.clf()
 
                 plt.close('all')
@@ -544,13 +694,25 @@ class trajectory_analysis:
             fig.savefig(self.results_dir + '/summary_combined_step_size_full_' + str(tlag) + '_heatmap.pdf')
             fig.clf()
 
-    def make_plot_step_sizes(self, label_order=[], clrs=[], combine_data=False):
+    def make_plot_step_sizes(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], combine_data=False):
 
         if (label_order):
-            labels = label_order
+            label_order_ = []
+            for l in label_order:
+                if (l in list(self.data_list_with_results['group_readable'])):
+                    label_order_.append(l)
+            labels = label_order_
         else:
             labels = np.unique(self.data_list_with_results['group_readable'])
             labels.sort()
+
+        if (plot_labels):
+            self.data_list_with_results['group_readable'] = ''
+            for i, plot_label in enumerate(plot_labels):
+                self.data_list_with_results['group_readable'] = np.where(
+                    self.data_list_with_results['group'] == str(labels[i]),
+                    plot_label, self.data_list_with_results['group_readable'])
+            labels = plot_labels
 
         if(combine_data):
 
@@ -579,6 +741,10 @@ class trajectory_analysis:
 
 
                 ax.boxplot(to_plot, labels=labels,showfliers=False)
+
+                ax.set(xlabel=xlabel)
+                if (ylabel != ''):
+                    ax.set(ylabel=ylabel)
                 plt.xticks(rotation='vertical')
                 plt.tight_layout()
                 fig.savefig(self.results_dir + '/summary_combined_step_size_' + str(tlag) + '_nf.pdf')
@@ -598,22 +764,77 @@ class trajectory_analysis:
                                 fliersize=0, ax=ax)
                 sns.swarmplot(x="group_readable", y=y_col, data=self.data_list_with_results, order=labels, color=".25",
                               size=4, ax=ax)
+                ax.set(xlabel=xlabel)
+                if (ylabel != ''):
+                    ax.set(ylabel=ylabel)
                 plt.xticks(rotation='vertical')
                 plt.tight_layout()
                 fig.savefig(self.results_dir + '/summary_' + y_col + '.pdf')
                 fig.clf()
 
+    def make_plot_combined_data(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[]):
+
+        self.data_list_with_results_full = pd.read_csv(self.results_dir + '/'+"all_data.txt",index_col=0,sep='\t')
+
+        self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
+        self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        if (label_order):
+            label_order_ = []
+            for l in label_order:
+                if (l in list(self.data_list_with_results['group_readable'])):
+                    label_order_.append(l)
+            labels = label_order_
+        else:
+            labels = np.unique(self.data_list_with_results_full['group_readable'])
+            labels.sort()
+
+        if (plot_labels):
+            self.data_list_with_results_full['group_readable'] = ''
+            for i, plot_label in enumerate(plot_labels):
+                self.data_list_with_results_full['group_readable'] = np.where(
+                    self.data_list_with_results_full['group'] == str(labels[i]),
+                    plot_label,
+                    self.data_list_with_results_full['group_readable'])
+            labels = plot_labels
+
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+
+        if (clrs != []):
+            sns.boxplot(x="group_readable", y='D', data=self.data_list_with_results_full, order=labels, showfliers=0, #fliersize=0,
+                        ax=ax, palette=clrs)
+        else:
+            sns.boxplot(x="group_readable", y='D', data=self.data_list_with_results_full, order=labels, showfliers=False, #fliersize=0,
+                        ax=ax)
+
+        ax.set(xlabel=xlabel)
+        if (ylabel != ''):
+            ax.set(ylabel=ylabel)
+
+        plt.xticks(rotation='vertical')
+        plt.tight_layout()
+        fig.savefig(self.results_dir + '/summary_combined_D.pdf')
+        fig.clf()
 
     def make_plot(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[]):
+        # label_order should match the group labels (i.e. group/group_readable)
+        # it is just imposing an order for plotting
+
+        # additionally to label_order, new names can be given using plot_labels
+        # these must corresponding the the labels in label_order, position by position
 
         self.data_list_with_results = pd.read_csv(self.results_dir + '/' + "summary.txt", sep='\t')
-        #self.data_list_with_results_full = pd.read_csv(self.results_dir + '/'+"all_data.txt",index_col=0,sep='\t')
 
         self.data_list_with_results['group']=self.data_list_with_results['group'].astype('str')
         self.data_list_with_results['group_readable'] = self.data_list_with_results['group_readable'].astype('str')
 
         if(label_order):
-            labels=label_order
+            label_order_=[]
+            for l in label_order:
+                if(l in list(self.data_list_with_results['group_readable'])):
+                    label_order_.append(l)
+            labels=label_order_
         else:
             labels = np.unique(self.data_list_with_results['group_readable'])
             labels.sort()
@@ -624,6 +845,7 @@ class trajectory_analysis:
                 self.data_list_with_results['group_readable']=np.where(self.data_list_with_results['group']==str(labels[i]),
                                                                        plot_label,self.data_list_with_results['group_readable'])
             labels=plot_labels
+
         for y_col in ['D_median','D_median_filtered']:
             fig = plt.figure()
             ax = fig.add_subplot(1, 1, 1)
@@ -631,10 +853,10 @@ class trajectory_analysis:
                 sns.boxplot(x="group_readable", y=y_col, data=self.data_list_with_results, order=labels, fliersize=0, ax=ax, palette=clrs)
             else:
                 sns.boxplot(x="group_readable", y=y_col, data=self.data_list_with_results, order=labels, fliersize=0, ax=ax)
+
             sns.swarmplot(x="group_readable", y=y_col, data=self.data_list_with_results, order=labels, color=".25", size=4, ax=ax)
             #ax.set(xlabel="X Label", ylabel = "Y Label")
-            if(xlabel != ''):
-                ax.set(xlabel=xlabel)
+            ax.set(xlabel=xlabel)
             if (ylabel != ''):
                 ax.set(ylabel = ylabel)
             plt.xticks(rotation='vertical')
@@ -765,19 +987,39 @@ class trajectory_analysis:
 
                         # if we have varying step sizes, must filter tracks
                         if (len(np.unique(step_sizes)) > 0):  ## TODO fix this so it checks whether the largest diff. is > mindiff
-                            track_data_filtered = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution)
+                            track_data_df = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution)
                             # save the new, filtered CSVs
-                            track_data_filtered.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv",sep='\t')
-                            track_data = track_data_filtered.to_numpy()
+                            track_data_df.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv")
+
+                            if (len(track_data_df) == 0):
+                                self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
+                                continue
+
+                if(self.limit_to_ROIs):
+                    if ((index in self.valid_img_files and self.valid_img_files[index] != '') and
+                            (index in self.valid_roi_files and self.valid_roi_files[index] != '')):
+                        # read in image file and roi file
+                        img = io.imread(self.valid_img_files[index])
+                        roi_file = self.valid_roi_files[index]
+                        if (roi_file.endswith('roi')):
+                            rois = read_roi_file(roi_file)
                         else:
-                            track_data = track_data_df.to_numpy()
+                            rois = read_roi_zip(roi_file)
 
-                else:
-                    track_data = track_data_df.to_numpy()
+                        # make mask from ROI for track exclusion
+                        (mask, err) = make_mask_from_roi(rois, (img.shape[0], img.shape[1]))
+                        if (err):
+                            self.log.write(f"Only ROIs of type polygon will be used for ROI exclusion. ({self.valid_img_files[index]})")
 
-                if (len(track_data) == 0):
-                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after filtering.\n")
-                    continue
+                        # limit the tracks to the ROI - returns track ids that are fully within mask
+                        valid_id_list = limit_tracks_given_mask(mask, track_data_df.to_numpy())
+                        track_data_df = track_data_df[track_data_df['Trajectory'].isin(valid_id_list)]
+
+                        if (len(track_data_df) == 0):
+                            self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
+                            continue
+
+                track_data = track_data_df.to_numpy()
 
                 # for this movie, calcuate step sizes and angles for each track
                 msd_diff_obj.set_track_data(track_data)
@@ -829,6 +1071,11 @@ class trajectory_analysis:
                 self.log.flush()
 
         self.data_list_with_step_sizes.to_csv(self.results_dir + '/' + "summary_step_sizes.txt", sep='\t')
+
+        if ((self.get_calibration_from_metadata or self.limit_to_ROIs)):
+            self.data_list_with_step_sizes_full=self.data_list_with_step_sizes_full.replace('', np.NaN)
+            self.data_list_with_step_sizes_full.dropna(axis=1,how='all',inplace=True)
+
         self.data_list_with_step_sizes_full.to_csv(self.results_dir + '/' + "all_data_step_sizes.txt", sep='\t')
         #self.data_list_with_angles.to_csv(self.results_dir + '/' + "all_data_angles.txt", sep='\t') TODO ANGLES
 
@@ -862,7 +1109,8 @@ class trajectory_analysis:
         full_results1['group_readable']=''
         full_results2_cols1=['D_median','D_mean','D_median_filt','D_mean_filt']
         full_results2_cols2=['D','err','r_sq','rmse','track_len','D_track_len']
-        full_results2 = pd.DataFrame(np.zeros((full_length, 10)), columns=full_results2_cols1+full_results2_cols2)
+        cols_len=len(full_results2_cols1) + len(full_results2_cols2)
+        full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2)
         self.data_list_with_results_full = pd.concat([full_results1,full_results2], axis=1)
 
         msd_diff_obj = self.make_msd_diff_object()
@@ -901,7 +1149,6 @@ class trajectory_analysis:
 
                 # check if we need to set the calibration for this file
                 if (self.get_calibration_from_metadata):
-
                     if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
                         m_px = self.calibration_from_metadata[index][0]
                         exposure = self.calibration_from_metadata[index][1]
@@ -914,28 +1161,47 @@ class trajectory_analysis:
 
                         #if we have varying step sizes, must filter tracks
                         if (len(np.unique(step_sizes)) > 0):   ## TODO fix this so it checks whether the largest diff. is > mindiff
-
-                            track_data_filtered = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution) #0.005)
+                            track_data_df = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution) #0.005)
                             #save the new, filtered CSVs
-                            track_data_filtered.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv", sep='\t')
-                            track_data = track_data_filtered.to_numpy()
+                            track_data_df.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv")
+
+                            if (len(track_data_df) == 0):
+                                self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
+                                continue
+
+                if(self.limit_to_ROIs):
+                    if ((index in self.valid_img_files and self.valid_img_files[index] != '') and
+                        (index in self.valid_roi_files and self.valid_roi_files[index] != '')):
+                        # read in image file and roi file
+                        img = io.imread(self.valid_img_files[index])
+                        roi_file=self.valid_roi_files[index]
+                        if(roi_file.endswith('roi')):
+                            rois = read_roi_file(roi_file)
                         else:
-                            track_data = track_data_df.to_numpy()
-                else:
-                    track_data = track_data_df.to_numpy()
+                            rois = read_roi_zip(roi_file)
 
-                if (len(track_data) == 0):
-                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after filtering.\n")
-                    continue
+                        # make mask from ROI for track exclusion
+                        (mask,err) = make_mask_from_roi(rois, (img.shape[0],img.shape[1]))
+                        if(err):
+                            self.log.write(f"Only ROIs of type polygon will be used for ROI exclusion. ({self.valid_img_files[index]})")
 
-                #for this movie, calcuate msd and diffusion for each track
+                        # limit the tracks to the ROI - returns track ids that are fully within mask
+                        valid_id_list = limit_tracks_given_mask(mask, track_data_df.to_numpy())
+                        track_data_df = track_data_df[track_data_df['Trajectory'].isin(valid_id_list)]
+
+                        if (len(track_data_df) == 0):
+                            self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
+                            continue
+
+                track_data=track_data_df.to_numpy()
+
+                #for this movie, calculate msd and diffusion for each track
                 msd_diff_obj.set_track_data(track_data)
                 msd_diff_obj.msd_all_tracks()
                 msd_diff_obj.fit_msd()
 
                 if(len(msd_diff_obj.D_linfits)==0):
-                    self.log.write("Note!  File '" +
-                                   cur_dir + "/" + cur_file +
+                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file +
                                    "' contains 0 tracks of minimum length for calculating Deff (" +
                                    str(msd_diff_obj.min_track_len_linfit) + ")\n")
                     self.data_list_with_results.at[index, 'D_median'] = np.nan
@@ -947,6 +1213,16 @@ class trajectory_analysis:
                     self.data_list_with_results.at[index, 'group'] = file_str
                     self.data_list_with_results.at[index, 'group_readable'] = group_readable
                     continue
+
+                # rainbow tracks
+                if(self.make_rainbow_tracks):
+                    if(index in self.valid_img_files and self.valid_img_files[index] != ''):
+                        out_file=os.path.split(self.valid_img_files[index])[1][:-4]+'_tracks_Deff.tif'
+                        msd_diff_obj.rainbow_tracks(self.valid_img_files[index], self.results_dir + '/' + out_file+'_tracks_Deff.tif',
+                                                    len_cutoff='none', remove_tracks=False,
+                                                    min_Deff=self.min_D_rainbow_tracks, max_Deff=self.max_D_rainbow_tracks, lw=0.1)
+                        msd_diff_obj.rainbow_tracks_ss(self.valid_img_files[index], self.results_dir + '/' + out_file+'_tracks_ss.tif',
+                                                       min_ss=self.min_ss_rainbow_tracks, max_ss=self.max_ss_rainbow_tracks, lw=0.1)
 
                 D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
                 D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
@@ -1000,7 +1276,7 @@ class trajectory_analysis:
 
         self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
 
-        if(self.get_calibration_from_metadata and full_length > full_data_i):
+        if((self.get_calibration_from_metadata or self.limit_to_ROIs) and full_length > full_data_i):
             #need to remove the extra rows of the df b/c some tracks were filtered
             to_drop = range(full_data_i,full_length,1)
             self.data_list_with_results_full.drop(to_drop, axis=0, inplace=True)

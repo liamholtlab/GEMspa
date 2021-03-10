@@ -11,51 +11,36 @@ class ConditionsDialog(wx.Dialog):
         super().__init__(parent=None, title='Experiment Conditions', size=(800, 800))
         panel = wx.Panel(self)
 
-        wx.StaticText(panel, label="Conditions:", pos=(10, 25))
+        wx.StaticText(panel, label="List Conditions (condition-name: cond-1,cond-2,...), one per line:", pos=(10, 25))
+        self.txtCtrl=wx.TextCtrl(panel, id=wx.ID_ANY, value="", pos=(10,60), size=(350,200), style=wx.TE_MULTILINE)
 
-        wx.StaticLine(panel, size=(250, 1), pos=(5, 55), style=wx.LI_HORIZONTAL)
-        wx.StaticText(panel, label="Add/Edit names:", pos=(10, 85))
-        self.conditions_choice = wx.ComboBox(panel, wx.ID_ANY, choices=[], pos=(10, 115))
-        self.edit_button = wx.Button(panel, wx.ID_ANY, label="Add/Edit labels", size=(100, 20), pos=(200, 115))
+        self.save_button = wx.Button(panel, wx.ID_OK, label="Create File", size=(100, 20), pos=(10, 275))
+        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(100, 20), pos=(150, 275))
 
-        wx.StaticLine(panel, size=(250, 1), pos=(5, 145), style=wx.LI_HORIZONTAL)
-        wx.StaticText(panel, label="Labels:", pos=(10, 175))
-        self.conditions_list = wx.TextCtrl(panel, wx.ID_ANY, pos=(10, 205))
-        self.save_button = wx.Button(panel, wx.ID_ANY, label="Save labels", size=(100, 20), pos=(200, 205))
-
-        wx.StaticLine(panel, size=(250, 1), pos=(5, 235), style=wx.LI_HORIZONTAL)
-        self.create_button = wx.Button(panel, wx.ID_OK, label="Create", size=(100, 20), pos=(10, 265))
-        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(100, 20), pos=(125, 265))
-
-        self.Bind(wx.EVT_BUTTON, self.on_click_edit_button, self.edit_button)
-        self.Bind(wx.EVT_BUTTON, self.on_click_save_button, self.save_button)
-
-        self.conditions = {}
-
-    def on_click_edit_button(self):
-        # get condition labels that are stored for currently selected title
-        # Add them to the list below
-        text = self.conditions_choice.GetStringSelection().strip()
-        if(text):
-            if(text in self.conditions):
-                # place labels in the text control
-                self.conditions_list.SetValue(self.conditions[text]) #string with each line separated by '\n'
-
-    def on_click_save_button(self):
-        # update the conditions in the text control
-        text = self.conditions_choice.GetStringSelection().strip()
-        if (text):
-            pass
-
-        # TODO: set up variables for condition titles/labels
-        # fill in the functions above
-        # make get/set for the variables
-
-        # add function to the main program to create the headers on the GRID once "Create" button is pressed
+    # make get/set for the "variables"
+    def get_conditions(self):
+        conditions_list=[]
+        error=False
+        data=self.txtCtrl.GetValue()
+        conditions=data.split("\n")
+        for condition in conditions:
+            clist=condition.split(":")
+            if(len(clist)>1):
+                cur_list=[clist[0].strip(),]
+                clist=clist[1].split(',')
+                if(len(clist)>=1):
+                    for val in clist:
+                        cur_list.append(val.strip())
+                    conditions_list.append(cur_list)
+                else:
+                    error=True
+            else:
+                error=True
+        return (error, conditions_list)
 
 class RunDialog(wx.Dialog):
     def __init__(self, default_dir, default_filepath):
-        super().__init__(parent=None, title='Run GEM Analysis', size=(800, 800))
+        super().__init__(parent=None, title='Run GEM Analysis', size=(800, 1000))
         panel = wx.Panel(self)
 
         wx.StaticText(panel, label="Enter directory to save the results:", pos=(10, 25))
@@ -71,8 +56,9 @@ class RunDialog(wx.Dialog):
         params_list = ['Time between frames (s):', 'Scale (microns per px):', 'Min. track length (fit):',
                        'Track length cutoff (fit):', 'Min track length (step size/angles):',
                        'Max t-lag (step size/angles):', 'Time step resolution (uneven time steps) (s):',
-                       'Min D for plots:','Max D for plots:']
-        default_values = [0.010,0.11,11,11,3,3,0.005,0,2]
+                       'Min D for plots:','Max D for plots:', 'Max D for rainbow tracks:',
+                       'Max step size for rainbow tracks (microns):','Prefix for image file name:']
+        default_values = [0.010,0.11,11,11,3,3,0.005,0,2,2,1,'DNA_']
         self.text_ctrl_run_params=[]
         for i,param in enumerate(params_list):
             wx.StaticText(panel, label=param, pos=(10,start_y+i*spacing))
@@ -81,17 +67,25 @@ class RunDialog(wx.Dialog):
         next_start=start_y+(i+1)*spacing+25
         self.read_movie_metadata_chk = wx.CheckBox(panel, label="Use movie files to read scale/time-step", pos=(10, next_start))
         self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+35))
-        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(10, next_start+70))
-        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(150, next_start+70))
+        self.draw_rainbow_tracks_chk = wx.CheckBox(panel, label="Draw rainbow tracks on image files", pos=(10, next_start+70))
+        self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI files to filter tracks", pos=(10, next_start + 105))
+
+        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(10, next_start+140))
+        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(150, next_start+140))
 
     def get_save_dir(self):
         return self.chosen_dir.GetPath()
     def get_filepath(self):
         return self.chosen_file.GetPath()
+
     def read_movie_metadata(self):
         return self.read_movie_metadata_chk.IsChecked()
     def uneven_time_steps(self):
         return self.uneven_time_steps_chk.IsChecked()
+    def draw_rainbow_tracks(self):
+        return self.draw_rainbow_tracks_chk.IsChecked()
+    def limit_with_rois(self):
+        return self.limit_with_rois_chk.IsChecked()
 
     def get_time_step(self):
         return float(self.text_ctrl_run_params[0].GetValue())
@@ -105,14 +99,18 @@ class RunDialog(wx.Dialog):
         return int(self.text_ctrl_run_params[4].GetValue())
     def get_max_tlag_step_size(self):
         return int(self.text_ctrl_run_params[5].GetValue())
-
     def get_time_step_resolution(self):
         return float(self.text_ctrl_run_params[6].GetValue())
-
     def get_min_D_cutoff(self):
         return float(self.text_ctrl_run_params[7].GetValue())
     def get_max_D_cutoff(self):
         return float(self.text_ctrl_run_params[8].GetValue())
+    def get_max_D_rainbow_tracks(self):
+        return float(self.text_ctrl_run_params[9].GetValue())
+    def get_max_step_size_rainbow_tracks(self):
+        return int(self.text_ctrl_run_params[10].GetValue())
+    def get_prefix_for_image_name(self):
+        return self.text_ctrl_run_params[11].GetValue().strip()
 
 class GEMSAnalyzerMainFrame(wx.Frame):
 
@@ -123,25 +121,27 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         self.create_menu()
         self.top_panel = wx.Panel(self)
 
-
         self.left_panel = wx.Panel(self.top_panel, -1, size=(300, 800))
         self.left_panel.SetBackgroundColour('#6f8089')
 
         self.right_panel = wx.Panel(self.top_panel, -1)
 
-        self.left_panel_lower = wx.Panel(self.left_panel, -1,)
+        self.left_panel_lower = wx.Panel(self.left_panel, -1)
         self.left_panel_upper = wx.Panel(self.left_panel, -1)
 
         self.leftGridSizer = wx.GridSizer(cols=2, vgap=1, hgap=1)
         self.left_panel_upper.SetSizer(self.leftGridSizer)
 
-        self.add_cell_col_chk = wx.CheckBox(self.left_panel_lower, label="Add column for cell label using file name", pos=(10,10))
-        self.choose_files_button = wx.Button(self.left_panel_lower, label="1. Choose files", pos=(10,40))
-        self.choose_movie_dir_button = wx.Button(self.left_panel_lower, label="2. Choose movie files directory", pos=(10, 70))
-
+        self.add_cell_col_chk = wx.CheckBox(self.left_panel_lower, label="Add column for cell label using file name",pos=(10,10))
+        self.choose_files_button = wx.Button(self.left_panel_lower, label="1. Choose files",pos=(10,40))
+        self.choose_movie_dir_button = wx.Button(self.left_panel_lower, label="2. Choose movie files directory",pos=(10, 70))
+        self.choose_image_dir_button = wx.Button(self.left_panel_lower, label="3. Choose image files directory",pos=(10, 100))
+        self.delete_selected_button = wx.Button(self.left_panel_lower, label="Delete Selected Rows", pos=(10,145))
 
         self.Bind(wx.EVT_BUTTON, self.on_click_choose_files_button, self.choose_files_button)
         self.Bind(wx.EVT_BUTTON, self.on_click_choose_movie_dir_button, self.choose_movie_dir_button)
+        self.Bind(wx.EVT_BUTTON, self.on_click_choose_image_dir_button, self.choose_image_dir_button)
+        self.Bind(wx.EVT_BUTTON, self.on_click_delete_selected_button, self.delete_selected_button)
 
         sizer=wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.left_panel_upper, 1, wx.SHAPED | wx.ALL, border=2)
@@ -162,6 +162,8 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         sizer.Add(self.right_panel, 1, wx.EXPAND | wx.ALL, border=2)
         self.top_panel.SetSizer(sizer)
 
+        self.known_headers=['id','directory','file name', 'movie file dir','image file dir']
+
         self.conditions_list=[]
         self.choice_boxes = []
         self.static_texts = []
@@ -177,18 +179,31 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         #self.Layout()
         self.Show()
 
-    def on_click_choose_movie_dir_button(self, e):
+    def on_click_delete_selected_button(self, e):
+        # delete rows
+        rows_selected = self.mainGrid.GetSelectedRows()
+        while(len(rows_selected)>0):
+            self.mainGrid.DeleteRows(rows_selected[0], 1)
+            self.next_grid_row_pos -= 1
+            rows_selected = self.mainGrid.GetSelectedRows()
+
+    def choose_dir(self, col_name):
         with wx.DirDialog(self, "Select Directory") as dirDialog:
             if dirDialog.ShowModal() == wx.ID_CANCEL:
                 return
             pathname = dirDialog.GetPath()
 
-        # add the movie file dir name to each row that was selected by user
-        # return value is a 0-indexed list of selected rows
+        # add the dir name to each row that was selected by user
         rows_selected = self.mainGrid.GetSelectedRows()
+        ind=self.known_headers.index(col_name)
         for row_i in rows_selected:
-            #print(row_i)
-            self.mainGrid.SetCellValue(row_i, 3, pathname)
+            self.mainGrid.SetCellValue(row_i, ind, pathname)
+
+    def on_click_choose_movie_dir_button(self, e):
+        self.choose_dir("movie file dir")
+
+    def on_click_choose_image_dir_button(self, e):
+        self.choose_dir("image file dir")
 
     def on_click_choose_files_button(self, e):
         with wx.FileDialog(self, "Select files", wildcard="csv files (*.csv)|*.csv",
@@ -212,19 +227,20 @@ class GEMSAnalyzerMainFrame(wx.Frame):
 
         rows_to_select=[]
         for pathname in pathnames:
-            # fill in row with: id, dir, filename, movie-filename and conditions in list
+            # fill in row with: id, dir, filename, movie-filename, tiff-file-name, and conditions in list
             self.mainGrid.AppendRows(1)
             (dir,file)=os.path.split(pathname)
 
-            self.mainGrid.SetCellValue(self.next_grid_row_pos, 0, str(self.next_id))
-            self.mainGrid.SetCellValue(self.next_grid_row_pos, 1, dir)
-            self.mainGrid.SetCellValue(self.next_grid_row_pos, 2, file)
-            self.mainGrid.SetCellValue(self.next_grid_row_pos, 3, "")
+            self.mainGrid.SetCellValue(self.next_grid_row_pos, self.known_headers.index('id'), str(self.next_id))
+            self.mainGrid.SetCellValue(self.next_grid_row_pos, self.known_headers.index('directory'), dir)
+            self.mainGrid.SetCellValue(self.next_grid_row_pos, self.known_headers.index('file name'), file)
+            self.mainGrid.SetCellValue(self.next_grid_row_pos, self.known_headers.index('movie file dir'), "")
+            self.mainGrid.SetCellValue(self.next_grid_row_pos, self.known_headers.index('image file dir'), "")
 
             for i,choice_box in enumerate(self.choice_boxes):
                 # conditions/choice boxes are in the order that they are listed in the grid
                 selection = choice_box.GetString(choice_box.GetSelection())
-                self.mainGrid.SetCellValue(self.next_grid_row_pos, i+4, selection)
+                self.mainGrid.SetCellValue(self.next_grid_row_pos, i+len(self.known_headers), selection)
 
             if (self.add_cell_col_chk.IsChecked()):
                 # ADD column for cell id and fill it
@@ -232,7 +248,7 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                 mo = re.match(r'.+[\_\s\-]([^\s\-\_]+)\.csv$', file)
                 if (mo):
                     cell_id = mo.group(1)
-                    self.mainGrid.SetCellValue(self.next_grid_row_pos, i+4+1, cell_id)
+                    self.mainGrid.SetCellValue(self.next_grid_row_pos, i+len(self.known_headers)+1, cell_id)
 
             rows_to_select.append(self.next_grid_row_pos)
             self.next_grid_row_pos+=1
@@ -249,21 +265,22 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         self.choice_boxes=[]
         self.static_texts=[]
 
-        start_pos=10
-        incr=25
         for i,condition in enumerate(self.conditions_list):
 
-            new_text = wx.StaticText(self.left_panel_upper, label=condition[0], ) #pos=(10,start_pos+(i*incr)))
+            new_text = wx.StaticText(self.left_panel_upper, label=condition[0], )
             self.static_texts.append(new_text)
             self.leftGridSizer.Add(new_text, 0, wx.ALIGN_CENTRE_VERTICAL | wx.ALIGN_RIGHT)
-
 
             choices_arr = condition[1:]
             choices_arr.insert(0,"")
 
-            new_choice = wx.Choice(self.left_panel_upper, choices=choices_arr, ) #pos=(200,start_pos+(i*incr)))
+            new_choice = wx.Choice(self.left_panel_upper, choices=choices_arr, )
             self.choice_boxes.append(new_choice)
             self.leftGridSizer.Add(new_choice, 0, wx.ALIGN_CENTRE_VERTICAL | wx.ALIGN_RIGHT)
+
+        # for spacing
+        self.leftGridSizer.Add(wx.StaticText(self.left_panel_upper, label="    ", ), 0,
+                               wx.ALIGN_CENTRE_VERTICAL | wx.ALIGN_RIGHT)
 
         self.left_panel_upper.Layout()
 
@@ -282,26 +299,25 @@ class GEMSAnalyzerMainFrame(wx.Frame):
     def clear_grid(self):
         self.mainGrid.ClearGrid()
         ncols = self.mainGrid.GetNumberCols()
-        self.mainGrid.DeleteCols(0, ncols)
+        if(ncols > 0):
+            self.mainGrid.DeleteCols(0, ncols)
         nrows = self.mainGrid.GetNumberRows()
-        self.mainGrid.DeleteRows(0, nrows)
+        if (nrows > 0):
+            self.mainGrid.DeleteRows(0, nrows)
 
     def load_data_to_grid(self, df):
         self.clear_grid()
 
         if(df is None):
             # no data, create new - load columns names from conditions
-            n=4
-            ncols = len(self.conditions_list) + n  # first 4 columns are id, directory, file name, movie file name
+            ncols = len(self.conditions_list) + len(self.known_headers)
             self.mainGrid.AppendCols(ncols)
             self.mainGrid.AppendRows(1)
-            self.mainGrid.SetCellValue(0, 0, "id")
-            self.mainGrid.SetCellValue(0, 1, "directory")
-            self.mainGrid.SetCellValue(0, 2, "file name")
-            self.mainGrid.SetCellValue(0, 3, "movie file name")
+            for col_i,col in enumerate(self.known_headers):
+                self.mainGrid.SetCellValue(0, col_i, col)
 
             for col_i,condition in enumerate(self.conditions_list):
-                self.mainGrid.SetCellValue(0,col_i+n,condition[0])
+                self.mainGrid.SetCellValue(0,col_i+len(self.known_headers),condition[0])
             self.mainGrid.AutoSizeColumns()
             self.next_grid_row_pos=1
             self.next_id=1
@@ -344,7 +360,7 @@ class GEMSAnalyzerMainFrame(wx.Frame):
     def load_conditions_from_grid_data(self, df):
         self.conditions_list = []
         for col in df.columns:
-            if(col != 'id' and col != 'file name' and col != 'directory' and col != 'movie file name'):
+            if(not col in self.known_headers):
                 vals = np.unique(df[col].dropna())
                 vals=list(vals.astype('str'))
                 vals.insert(0,col)
@@ -375,13 +391,41 @@ class GEMSAnalyzerMainFrame(wx.Frame):
     def on_new_conditions(self, event):
         #open dialog to get info
         with ConditionsDialog() as dlg:
-
             if dlg.ShowModal() == wx.ID_OK:
-                pass
+                (error, conditions)=dlg.get_conditions()
+                # TODO add error handling
+                if(len(conditions)>0):
+                    self.clear_conditions_panel()
+                    self.conditions_list=conditions.copy()
+                    self.load_data_to_grid(None)
+                    self.load_conditions_to_panel()
 
     def on_clear(self, event):
         self.conditions_list=[]
         self.clear_conditions_panel()
+        self.clear_grid()
+
+    def check_grid_columns(self, df):
+        #when loading data to grid from pre-created file, check that headers are correct and add if needed
+        for col in self.known_headers:
+            if(not col in df.columns):
+                if(col != 'movie file dir' and col != 'image file dir'):
+                    return [] # error missing mandatory columns
+
+        # all okay so far, check if need to add the missing columns
+        if(not 'movie file dir' in df.columns):
+            df['movie file dir']=''
+        if (not 'image file dir' in df.columns):
+            df['image file dir'] = ''
+
+        #finally, fix ordering of columns
+        cols = list(df.columns)
+        for col in self.known_headers:
+            cols.remove(col)
+            cols.insert(self.known_headers.index(col),col)
+        df=df[cols]
+
+        return df
 
     def on_open(self, event):
         # load previously created input file
@@ -390,13 +434,19 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         df_grid_data = self.get_user_select_file("Open analysis input file")
 
         # load file (it should be txt tab delimited) into grid
+        # check that it has required columns.  if missing "movie file dir" or "image file dir", add them
         if(not (df_grid_data is None)):
-            self.load_data_to_grid(df_grid_data)
+            valid_grid_data=self.check_grid_columns(df_grid_data)
+            if(len(valid_grid_data) > 0):
+                self.load_data_to_grid(valid_grid_data)
 
-            # load conditions using column headers and unique column values
-            self.clear_conditions_panel()
-            self.load_conditions_from_grid_data(df_grid_data)
-            self.load_conditions_to_panel()
+                # load conditions using column headers and unique column values
+                self.clear_conditions_panel()
+                self.load_conditions_from_grid_data(valid_grid_data)
+                self.load_conditions_to_panel()
+            else:
+                with wx.MessageDialog(self, None,"Invalid input file.", "Invalid") as msgDialog:
+                    msgDialog.ShowModal()
 
     def save_grid_to_file(self, pathname):
         # save data in grid to a txt file
@@ -441,6 +491,8 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                 input_file = dlg.get_filepath()
                 read_movie_metadata = dlg.read_movie_metadata()
                 uneven_time_steps = dlg.uneven_time_steps()
+                rainbow_tracks=dlg.draw_rainbow_tracks()
+                limit_with_rois=dlg.limit_with_rois()
 
                 if(not save_results_dir or not input_file):
                     wx.MessageDialog(self, "Please do not leave the results directory or the file name blank.  Cannot run analysis.").ShowModal()
@@ -449,28 +501,40 @@ class GEMSAnalyzerMainFrame(wx.Frame):
 
                     # run the analysis
                     #def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
-                    # movie_file_is_dir=True, log_file=''):
-                    traj_an = tja.trajectory_analysis(input_file, save_results_dir,
-                                                      read_movie_metadata, uneven_time_steps, False) # TODO set last arg to TRUE
+                    #             make_rainbow_tracks=True, limit_to_ROIs=False, img_file_prefix='DNA_', log_file=''):
+                    traj_an = tja.trajectory_analysis(input_file, save_results_dir, read_movie_metadata, uneven_time_steps,
+                                                      rainbow_tracks, limit_with_rois, dlg.get_prefix_for_image_name())
 
                     traj_an.time_step = dlg.get_time_step()
                     traj_an.micron_per_px = dlg.get_micron_per_px()
                     traj_an.ts_resolution=dlg.get_time_step_resolution()
-
                     traj_an.min_track_len_linfit = dlg.get_min_track_len_linfit()
                     traj_an.min_track_len_step_size = dlg.get_min_track_len_step_size()
-
                     traj_an.track_len_cutoff_linfit = dlg.get_track_len_cutoff_linfit()
                     traj_an.max_tlag_step_size = dlg.get_max_tlag_step_size()
                     traj_an.min_D_cutoff = dlg.get_min_D_cutoff()
                     traj_an.max_D_cutoff = dlg.get_max_D_cutoff()
+                    traj_an.max_ss_rainbow_tracks = dlg.get_max_step_size_rainbow_tracks()
+                    traj_an.max_D_rainbow_tracks = dlg.get_max_D_rainbow_tracks()
 
                     traj_an.write_params_to_log_file()
 
+                    # set up the plot ordering based on the conditions list object
+                    # we want ordering to be the same as it was entered in the conditions dialog or file
+                    conditions_order = self.conditions_list[0][1:]
+                    for i in range(1, len(self.conditions_list)):
+                        cur_order = [[a, b] for a in conditions_order for b in self.conditions_list[i][1:]]
+                        conditions_order = []
+                        for item in cur_order:
+                            conditions_order.append(item[0] + '_' + item[1])
+
                     traj_an.calculate_msd_and_diffusion()
-                    traj_an.make_plot()
+                    traj_an.make_plot(label_order=conditions_order)
+                    traj_an.make_plot_combined_data(label_order=conditions_order) # like matlab
                     traj_an.calculate_step_sizes_and_angles()
                     traj_an.plot_distribution_step_sizes(tlags=[1,])
+                    traj_an.plot_distribution_Deff()
+
                     #traj_an.plot_distribution_angles(tlags=[1,])
 
                     self.statusbar.SetStatusText('Finished!')
@@ -481,10 +545,10 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         edit_menu = wx.Menu()
         run_menu = wx.Menu()
 
-        file_new_dlg = file_menu.Append(wx.ID_ANY, "&New (don't use)", "Create new input file from dialog")
+        file_new_dlg = file_menu.Append(wx.ID_ANY, "&New", "Create new input file from dialog")
         file_menu.AppendSeparator()
-        file_new = file_menu.Append(wx.ID_ANY, "&New from file", "Create new input file from conditions file (txt)")
-        file_menu.AppendSeparator()
+        #file_new = file_menu.Append(wx.ID_ANY, "&New from file", "Create new input file from conditions file (txt)")
+        #file_menu.AppendSeparator()
         file_open=file_menu.Append(wx.ID_ANY, "&Open", "Open input file")
         file_menu.AppendSeparator()
         file_save=file_menu.Append(wx.ID_ANY, "&Save As", "Save input file")
@@ -498,7 +562,7 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         self.Bind(event=wx.EVT_MENU, handler=self.on_open, source=file_open)
         self.Bind(event=wx.EVT_MENU, handler=self.on_save, source=file_save)
         self.Bind(event=wx.EVT_MENU, handler=self.on_new_conditions, source=file_new_dlg)
-        self.Bind(event=wx.EVT_MENU, handler=self.on_new, source=file_new)
+        #self.Bind(event=wx.EVT_MENU, handler=self.on_new, source=file_new)
         self.Bind(event=wx.EVT_MENU, handler=self.on_clear, source=file_clear)
         self.Bind(event=wx.EVT_MENU, handler=self.on_exit, source=file_exit)
 
