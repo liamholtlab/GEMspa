@@ -966,7 +966,7 @@ class trajectory_analysis:
                 cur_dir = data[self._dir_col_name]
                 cur_file = data[self._file_col_name]
 
-
+                self.log.write("Reading track data file: "+cur_dir + '/' + cur_file+"\n")
                 track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
                 if (len(track_data_df) == 0):
                     self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
@@ -1092,6 +1092,7 @@ class trajectory_analysis:
                 cur_dir = data[self._dir_col_name]
                 cur_file = data[self._file_col_name]
 
+                self.log.write("Reading track data file: "+cur_dir + '/' + cur_file+"\n")
                 track_data = self.read_track_data_file(cur_dir + '/' + cur_file)
                 track_data = track_data.to_numpy()
                 if(len(track_data) == 0):
