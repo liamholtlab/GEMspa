@@ -130,31 +130,34 @@ class msd_diffusion:
         start_arr=np.zeros((self.max_tlag_step_size,), dtype='int')
         angle_start_arr = np.zeros((self.max_tlag_step_size,), dtype='int')
         for id_i,id in enumerate(ids):
+            #if(id_i==13):
+            #    print("")
             cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
             num_shifts = min(self.max_tlag_step_size,len(cur_track)-1)
-            max_num_angle_tlags= int((len(cur_track) - 1) / 2)
+            max_num_angle_tlags= min(self.max_tlag_step_size, int((len(cur_track) - 1) / 2))
             x = cur_track[:, self.tracks_x_col]
             y = cur_track[:, self.tracks_y_col]
-            shifts = np.arange(1, num_shifts+1, 1)
-            for i, shift in enumerate(shifts):
-                x_shifts = x[shift:] - x[:-shift]
-                y_shifts = y[shift:] - y[:-shift]
-                if(False): #i < max_num_angle_tlags):
+            tlags = np.arange(1, num_shifts+1, 1)
+            for i, tlag in enumerate(tlags):
+                x_shifts = x[tlag:] - x[:-tlag]
+                y_shifts = y[tlag:] - y[:-tlag]
+
+                sum_diffs_sq = np.square(x[tlag:] - x[:-tlag]) + np.square(y[tlag:] - y[:-tlag])
+                self.step_sizes[i][start_arr[i]:start_arr[i] + len(sum_diffs_sq)] = np.sqrt(sum_diffs_sq) * self.micron_per_px
+                start_arr[i] += len(sum_diffs_sq)
+
+                if(tlag <= max_num_angle_tlags): # angles for this tlag
                     # relative angle: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3856831/
                     vecs = np.column_stack((x_shifts, y_shifts))
-                    theta=np.zeros(len(vecs)-1-i)
-                    for vec_i in range(len(vecs)-1-i):
-                        if(np.linalg.norm(vecs[vec_i]) == 0 or np.linalg.norm(vecs[vec_i+1+i]) == 0):
+                    theta=np.zeros(len(list(range(0, len(vecs)-tlag, tlag))))
+                    for theta_i,vec_i in enumerate(range(0, len(vecs)-tlag, tlag)): # check range with longer track STOPPED HERE
+                        if(np.linalg.norm(vecs[vec_i]) == 0 or np.linalg.norm(vecs[vec_i+tlag]) == 0):
                             print("norm of vec is 0: id=", id)
-                        theta[vec_i] = np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+1+i]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+1+i]))))
+                        theta[theta_i] = np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag]))))
                     self.angles[i][angle_start_arr[i]:angle_start_arr[i]+len(theta)] = theta
                     #if(i==0):
                     #   self.angles_tlag1[id_i][:len(theta)]=theta
                     angle_start_arr[i] += len(theta)
-
-                sum_diffs_sq = np.square(x[shift:] - x[:-shift]) + np.square(y[shift:] - y[:-shift])
-                self.step_sizes[i][start_arr[i]:start_arr[i]+len(sum_diffs_sq)] = np.sqrt(sum_diffs_sq)*self.micron_per_px
-                start_arr[i] += len(sum_diffs_sq)
 
     def msd_all_tracks(self):
         # for each track, do MSD calculation
@@ -453,7 +456,7 @@ class msd_diffusion:
 
 #
 # test1=False
-# test2=False
+test2=False
 # test3=False
 #
 # from nd2reader import ND2Reader
@@ -602,28 +605,30 @@ class msd_diffusion:
 #
 #     msd_diff.save_D_histogram("Deff.pdf")
 #
-# if(test2):
-#     dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/tamas-20201218_HeLa_hPNE_nucPfV_NPM1_clones/tracks/"
-#     file_name='Traj_02_WT_hPNE_nucPfV_010_01.csv'
-#
-#     track_data_df = pd.read_csv(dir_ + '/' + file_name)
-#     track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
-#     track_data = track_data_df.to_numpy()
-#
-#     msd_diff = msd_diffusion()
-#     msd_diff.micron_per_px=0.1527
-#     msd_diff.time_step=0.010
-#     msd_diff.set_track_data(track_data)
-#
-#     msd_diff.msd_all_tracks()
-#     msd_diff.fit_msd()
-#
-#     msd_diff.save_dir = dir_ + '/results'
-#
-#     msd_diff.save_msd_data()
-#     df = msd_diff.save_fit_data()
-#     print(np.median(df['D']))
-#
+if(test2):
+    dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/tamas-20201218_HeLa_hPNE_nucPfV_NPM1_clones/tracks/"
+    file_name='Traj_02_WT_hPNE_nucPfV_010_01.csv'
+
+    track_data_df = pd.read_csv(dir_ + '/' + file_name)
+    track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
+    track_data = track_data_df.to_numpy()
+
+    msd_diff = msd_diffusion()
+    msd_diff.micron_per_px=0.1527
+    msd_diff.time_step=0.010
+    msd_diff.set_track_data(track_data)
+    msd_diff.step_sizes_and_angles()
+    msd_diff.save_angle_hist(tlag=1)
+    msd_diff.save_angle_hist(tlag=2)
+    msd_diff.save_angle_hist(tlag=3)
+    msd_diff.fit_msd()
+
+    msd_diff.save_dir = dir_ + '/results'
+
+    msd_diff.save_msd_data()
+    df = msd_diff.save_fit_data()
+    print(np.median(df['D']))
+
 
 
 

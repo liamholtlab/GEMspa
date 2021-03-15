@@ -519,18 +519,18 @@ class GEMSAnalyzerMainFrame(wx.Frame):
 
                     traj_an.write_params_to_log_file()
 
-                    # set up the plot ordering based on the conditions list object
+                    # set up the plot ordering based on the conditions list object # TODO fix - ** load conditions from data file here **
                     # we want ordering to be the same as it was entered in the conditions dialog or file
-                    conditions_order = self.conditions_list[0][1:]
-                    for i in range(1, len(self.conditions_list)):
-                        cur_order = [[a, b] for a in conditions_order for b in self.conditions_list[i][1:]]
-                        conditions_order = []
-                        for item in cur_order:
-                            conditions_order.append(item[0] + '_' + item[1])
+                    # conditions_order = self.conditions_list[0][1:]
+                    # for i in range(1, len(self.conditions_list)):
+                    #     cur_order = [[a, b] for a in conditions_order for b in self.conditions_list[i][1:]]
+                    #     conditions_order = []
+                    #     for item in cur_order:
+                    #         conditions_order.append(item[0] + '_' + item[1])
 
                     traj_an.calculate_msd_and_diffusion()
-                    traj_an.make_plot(label_order=conditions_order)
-                    traj_an.make_plot_combined_data(label_order=conditions_order) # like matlab
+                    traj_an.make_plot() #label_order=conditions_order)
+                    traj_an.make_plot_combined_data() #label_order=conditions_order) # like matlab
                     traj_an.calculate_step_sizes_and_angles()
                     traj_an.plot_distribution_step_sizes(tlags=[1,])
                     traj_an.plot_distribution_Deff()

@@ -12,10 +12,9 @@ import datetime
 import re
 from tifffile import TiffFile
 from nd2reader import ND2Reader
-from skimage import io, draw
+from skimage import io, draw, img_as_bool
 from read_roi import read_roi_zip
 from read_roi import read_roi_file
-
 
 def limit_tracks_given_mask(mask_image, track_data):
     # loop through tracks, only use tracks that are fully within the ROI areas (all posiitons evaluate to 1)
@@ -26,8 +25,7 @@ def limit_tracks_given_mask(mask_image, track_data):
     prev_pos = 0
     for pos_i, pos in enumerate(track_data):
         if (pos[0] != id):
-            if ((len(np.unique(track_labels_full[prev_pos:pos_i, 1])) == 1) and (
-                    track_labels_full[pos_i - 1][1] != 0)):
+            if ((len(np.unique(track_labels_full[prev_pos:pos_i, 1])) == 1) and (track_labels_full[pos_i - 1][1] != 0)):
                 valid_id_list.append(id)
             id = pos[0]
             prev_pos = pos_i
@@ -38,8 +36,7 @@ def limit_tracks_given_mask(mask_image, track_data):
 
     # check final track
     pos_i = pos_i + 1
-    if ((len(np.unique(track_labels_full[prev_pos:pos_i, 1])) == 1) and (
-            track_labels_full[pos_i - 1][1] != 0)):
+    if ((len(np.unique(track_labels_full[prev_pos:pos_i, 1])) == 1) and (track_labels_full[pos_i - 1][1] != 0)):
         valid_id_list.append(id)
 
     valid_id_list = np.asarray(valid_id_list)
@@ -215,6 +212,8 @@ class trajectory_analysis:
                     self.error_in_data_file=True
                     break
 
+        # If we are limiting to ROIs,
+
         # read in the time step information from the movie files
         if(not self.error_in_data_file):
             if(self.get_calibration_from_metadata or self.make_rainbow_tracks or self.limit_to_ROIs):
@@ -223,7 +222,7 @@ class trajectory_analysis:
                     self.data_list[self._movie_file_col_name] = self.data_list[self._movie_file_col_name].fillna('')
                 if(self.make_rainbow_tracks or self.limit_to_ROIs):
                     self.data_list[self._img_file_col_name] = self.data_list[self._img_file_col_name].fillna('')
-                # TODO Set up extra column in maingui, connect so that the rainbow tracks are made and trajs limited to ROIs
+
                 for row in self.data_list.iterrows():
                     ind=row[1][self._index_col_name]
 
@@ -231,6 +230,8 @@ class trajectory_analysis:
                     # csv file:           Traj_<file_name>.csv
                     # nd2/tif movie file: <file_name>.tif or <file_name>.nd2
                     # img file:           <PRE><file_name>.tif
+                    # roi file:           <file_name>.roi or <file_name>.zip
+                    # mask file:          <file_name>_mask.tif (values 0 and 255)
                     csv_file=row[1][self._file_col_name]
 
                     if(self.make_rainbow_tracks or self.limit_to_ROIs):
@@ -247,6 +248,7 @@ class trajectory_analysis:
                         if(self.limit_to_ROIs):
                             roi_file1=img_dir+"/"+self.img_file_prefix+csv_file[5:-4]
                             roi_file2=img_dir + "/" + csv_file[5:-4]
+
                             for roi_file in [roi_file1,roi_file2]:
                                 if(roi_file.endswith(".tif")):
                                     roi_file=roi_file[:-4]
@@ -256,9 +258,13 @@ class trajectory_analysis:
                                 elif(os.path.isfile(roi_file+".zip")):
                                     self.valid_roi_files[ind]=roi_file+".zip"
                                     break
+                                elif (os.path.isfile(roi_file + "_mask.tif")):
+                                    self.valid_roi_files[ind] = roi_file + "_mask.tif"
+                                    break
+
                             if(not (ind in self.valid_roi_files)):
                                 self.valid_roi_files[ind]=''
-                                self.log.write(f"Error! ROI file not found, tried: {roi_file1}.roi/zip and {roi_file2}.roi/.zip\n")
+                                self.log.write(f"Error! ROI file not found, tried: {roi_file1}.roi/zip/_mask.tif, {roi_file2}.roi/.zip/_mask.tif.\n")
 
                     if(self.get_calibration_from_metadata):
 
@@ -871,18 +877,65 @@ class trajectory_analysis:
         elif (ext == '.txt'):
             sep = '\t'
         else:
-            print("Error in reading '" + file_name + "': all input files must have extension txt or csv. Skipping...",
-                self.log_file)
+            self.log.write(f"Error in reading {file_name}: all input files must have extension txt or csv. Skipping...")
+            self.log.flush()
             return []
         track_data_df = pd.read_csv(file_name, sep=sep)
+        for col_name in [self.traj_id_col, self.traj_frame_col, self.traj_x_col, self.traj_y_col]:
+            if(not (col_name in track_data_df.columns)):
+                self.log.write(f"Error in reading {file_name}: required column {col_name} is missing.\n")
+                self.log.flush()
+                return []
+
         track_data_df = track_data_df[[self.traj_id_col, self.traj_frame_col, self.traj_x_col, self.traj_y_col]]
         return track_data_df
+
+    def filter_ROI(self, index, df):
+        if (index in self.valid_roi_files and self.valid_roi_files[index] != ''):
+            roi_file = self.valid_roi_files[index]
+            err = False
+            if (roi_file.endswith('roi')):
+                rois = read_roi_file(roi_file)
+            elif (roi_file.endswith('zip')):
+                rois = read_roi_zip(roi_file)
+            elif (roi_file.endswith('_mask.tif')):
+                mask = io.imread(roi_file)
+                mask = img_as_bool(mask)
+                mask = mask.astype('uint8') # changing to 0/1 instead of 0/255, but it should work either way
+            else:
+                self.log.write(f"Invalid ROI file. ({roi_file})\n")
+                self.log.flush()
+                err = True
+
+            # make mask from ROI for track exclusion
+            if ((not err) and (not roi_file.endswith('_mask.tif'))):  # make mask from ROI
+                if (index in self.valid_img_files and self.valid_img_files[index] != ''):
+                    img = io.imread(self.valid_img_files[index])
+
+                    (mask, err) = make_mask_from_roi(rois, (img.shape[0], img.shape[1]))
+                    if (err):
+                        self.log.write(
+                            f"Only ROIs of type polygon will be used for ROI exclusion. Make a mask instead. ({roi_file})\n")
+                        self.log.flush()
+                else:
+                    self.log.write(f"Cannot load tif image file for ROI file: ({roi_file}).\n")
+                    self.log.flush()
+                    err = True
+            if (not err):
+                # limit the tracks to the ROI - returns track ids that are fully within mask
+                valid_id_list = limit_tracks_given_mask(mask, df.to_numpy())
+                df = df[df['Trajectory'].isin(valid_id_list)]
+        else:
+            # no action here - error will already have been printed by class init function #
+            pass
+        return df
 
     def calculate_step_sizes_and_angles(self, save_per_file_data=False):
         group_list = self.groups
 
         # get total number of tracks for all groups/all files so I can make a large dataframe to fill
-        max_tlag1_dim_steps = 0
+        max_tlag1_ss_num_steps = 0
+        max_tlag1_angle_num_steps = 0
         for group_i, group in enumerate(group_list):
             group_df = self.grouped_data_list.get_group(group)
             for index, data in group_df.iterrows():
@@ -901,19 +954,21 @@ class trajectory_analysis:
                     track_lengths[i, 0] = id
                     track_lengths[i, 1] = len(cur_track)
 
-                filt_ids = track_lengths[track_lengths[:, 1] >= self.min_track_len_step_size][:, 0]
                 filt_track_lengths = track_lengths[track_lengths[:, 1] >= self.min_track_len_step_size][:, 1]
-                tlag1_dim_steps = int(np.sum(filt_track_lengths - 1))
+                tlag1_ss_num_steps = int(np.sum(filt_track_lengths - 1))
+                tlag1_angle_num_steps = int(np.sum(filt_track_lengths - 2))
 
-                if(tlag1_dim_steps > max_tlag1_dim_steps):
-                    max_tlag1_dim_steps = tlag1_dim_steps
+                if(tlag1_ss_num_steps > max_tlag1_ss_num_steps):
+                    max_tlag1_ss_num_steps = tlag1_ss_num_steps
+                if (tlag1_angle_num_steps > max_tlag1_angle_num_steps):
+                    max_tlag1_angle_num_steps = tlag1_angle_num_steps
 
         # make a full dataframe containing all data - step sizes
         nrows=self.max_tlag_step_size*len(self.data_list)
-        ncols=len(self.data_list.columns)+max_tlag1_dim_steps
+        ncols=len(self.data_list.columns)+max_tlag1_ss_num_steps
         colnames=list(self.data_list.columns)
         endpos=len(colnames)
-        rest_cols=np.asarray(range(max_tlag1_dim_steps))
+        rest_cols=np.asarray(range(max_tlag1_ss_num_steps))
         rest_cols=rest_cols.astype('str')
         colnames.extend(rest_cols)
         self.data_list_with_step_sizes_full = pd.DataFrame(np.empty((nrows, ncols), dtype=np.str), columns=colnames)
@@ -931,13 +986,12 @@ class trajectory_analysis:
         self.data_list_with_step_sizes['group'] = ''
         self.data_list_with_step_sizes['group_readable'] = ''
 
-        # make a full dataframe containing all data - angles TODO ANGLES
-        # num_angle_tlags = int((self.track_len_cutoff_step_size-1)/2)
-        # nrows =  num_angle_tlags * len(self.data_list)
-        # ncols = len(self.data_list.columns) + (self.track_len_cutoff_step_size-2) * max_length
+        # make a full dataframe containing all data - angles TODO test and uncomment this
+        # nrows =  self.max_tlag_step_size * len(self.data_list)
+        # ncols = len(self.data_list.columns) + max_tlag1_angle_num_steps
         # colnames = list(self.data_list.columns)
         # endpos = len(colnames)
-        # rest_cols = np.asarray(range((self.track_len_cutoff_step_size - 2) * max_length))
+        # rest_cols = np.asarray(range(max_tlag1_angle_num_steps))
         # rest_cols = rest_cols.astype('str')
         # colnames.extend(rest_cols)
         # self.data_list_with_angles = pd.DataFrame(np.empty((nrows, ncols), dtype=np.str), columns=colnames)
@@ -945,7 +999,7 @@ class trajectory_analysis:
         # self.data_list_with_angles.insert(loc=endpos + 1, column='group', value='')
         # self.data_list_with_angles.insert(loc=endpos + 2, column='group_readable', value='')
         # self.data_list_with_angles.insert(loc=endpos + 3, column='tlag', value=0)
-        # self.data_list_with_angles['tlag'] = np.tile(range(1, num_angle_tlags+1), len(self.data_list))
+        # self.data_list_with_angles['tlag'] = np.tile(range(1, self.max_tlag_step_size+1), len(self.data_list))
 
         msd_diff_obj = self.make_msd_diff_object()
 
@@ -967,9 +1021,11 @@ class trajectory_analysis:
                 cur_file = data[self._file_col_name]
 
                 self.log.write("Reading track data file: "+cur_dir + '/' + cur_file+"\n")
+                self.log.flush()
                 track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
                 if (len(track_data_df) == 0):
                     self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
+                    self.log.flush()
                     continue
 
                 #check if we need to set the calibration for this file
@@ -993,31 +1049,15 @@ class trajectory_analysis:
 
                             if (len(track_data_df) == 0):
                                 self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
+                                self.log.flush()
                                 continue
 
-                if(self.limit_to_ROIs):
-                    if ((index in self.valid_img_files and self.valid_img_files[index] != '') and
-                            (index in self.valid_roi_files and self.valid_roi_files[index] != '')):
-                        # read in image file and roi file
-                        img = io.imread(self.valid_img_files[index])
-                        roi_file = self.valid_roi_files[index]
-                        if (roi_file.endswith('roi')):
-                            rois = read_roi_file(roi_file)
-                        else:
-                            rois = read_roi_zip(roi_file)
-
-                        # make mask from ROI for track exclusion
-                        (mask, err) = make_mask_from_roi(rois, (img.shape[0], img.shape[1]))
-                        if (err):
-                            self.log.write(f"Only ROIs of type polygon will be used for ROI exclusion. ({self.valid_img_files[index]})")
-
-                        # limit the tracks to the ROI - returns track ids that are fully within mask
-                        valid_id_list = limit_tracks_given_mask(mask, track_data_df.to_numpy())
-                        track_data_df = track_data_df[track_data_df['Trajectory'].isin(valid_id_list)]
-
-                        if (len(track_data_df) == 0):
-                            self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
-                            continue
+                if (self.limit_to_ROIs):
+                    track_data_df = self.filter_ROI(index, track_data_df)
+                    if (len(track_data_df) == 0):
+                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
+                        self.log.flush()
+                        continue
 
                 track_data = track_data_df.to_numpy()
 
@@ -1030,9 +1070,9 @@ class trajectory_analysis:
                     group_readable = self.group_str_to_readable[file_str]
 
                 cur_data_step_sizes = msd_diff_obj.step_sizes
-                #cur_data_angles = msd_diff_obj.angles TODO ANGLES
+                cur_data_angles = msd_diff_obj.angles
                 ss_len=len(cur_data_step_sizes)
-                #a_len=len(cur_data_angles) TODO ANGLES
+                a_len=len(cur_data_angles)
 
                 #fill step size data
                 self.data_list_with_step_sizes_full.loc[full_data_ss_i:full_data_ss_i+ss_len-1,'id']=index
@@ -1052,20 +1092,20 @@ class trajectory_analysis:
                 self.data_list_with_step_sizes.at[index, 'group'] = file_str
                 self.data_list_with_step_sizes.at[index, 'group_readable'] = group_readable
 
-                #fill angle data TODO ANGLES
+                #fill angle data TODO test and uncomment
                 # self.data_list_with_angles.loc[full_data_a_i:full_data_a_i+a_len-1,'id']=index
                 # for k in range(len(self.data_list.columns)):
                 #     self.data_list_with_angles.iloc[full_data_a_i:full_data_a_i+a_len,k+1]=self.data_list.loc[index][k]
                 # self.data_list_with_angles.loc[full_data_a_i:full_data_a_i+a_len-1,'group']=file_str
                 # self.data_list_with_angles.loc[full_data_a_i:full_data_a_i+a_len-1,'group_readable']=group_readable
-                # self.data_list_with_angles.loc[full_data_a_i:full_data_a_i+a_len-1,
-                #                                 "0":str(len(msd_diff_obj.angles[0])-1)]=msd_diff_obj.angles
+                # self.data_list_with_angles.loc[full_data_a_i:full_data_a_i+a_len-1,"0":str(len(msd_diff_obj.angles[0])-1)]=msd_diff_obj.angles
+
                 if (save_per_file_data):
                     msd_diff_obj.save_step_sizes(file_name=file_str + '_' + str(index) + "_step_sizes.txt")
-                    #msd_diff_obj.save_angles(file_name=file_str + '_' + str(index) + "_angles.txt") TODO ANGLES
+                    msd_diff_obj.save_angles(file_name=file_str + '_' + str(index) + "_angles.txt")
 
                 full_data_ss_i += len(cur_data_step_sizes)
-                #full_data_a_i +=  len(cur_data_angles) # TODO ANGLES
+                full_data_a_i +=  len(cur_data_angles)
 
                 self.log.write("Processed " + str(index) +" "+cur_file + "for step sizes and angles.\n")
                 self.log.flush()
@@ -1076,8 +1116,11 @@ class trajectory_analysis:
             self.data_list_with_step_sizes_full=self.data_list_with_step_sizes_full.replace('', np.NaN)
             self.data_list_with_step_sizes_full.dropna(axis=1,how='all',inplace=True)
 
+            #self.data_list_with_angles = self.data_list_with_angles.replace('', np.NaN) # TODO test and uncomment
+            #self.data_list_with_angles.dropna(axis=1, how='all', inplace=True)
+
         self.data_list_with_step_sizes_full.to_csv(self.results_dir + '/' + "all_data_step_sizes.txt", sep='\t')
-        #self.data_list_with_angles.to_csv(self.results_dir + '/' + "all_data_angles.txt", sep='\t') TODO ANGLES
+        #self.data_list_with_angles.to_csv(self.results_dir + '/' + "all_data_angles.txt", sep='\t') # TODO test and uncomment
 
     def calculate_msd_and_diffusion(self, save_per_file_data=False):
         # calculates the msd and diffusion data for ALL groups
@@ -1093,6 +1136,7 @@ class trajectory_analysis:
                 cur_file = data[self._file_col_name]
 
                 self.log.write("Reading track data file: "+cur_dir + '/' + cur_file+"\n")
+                self.log.flush()
                 track_data = self.read_track_data_file(cur_dir + '/' + cur_file)
                 track_data = track_data.to_numpy()
                 if(len(track_data) == 0):
@@ -1114,8 +1158,6 @@ class trajectory_analysis:
         full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2)
         self.data_list_with_results_full = pd.concat([full_results1,full_results2], axis=1)
 
-        msd_diff_obj = self.make_msd_diff_object()
-
         # make a dataframe containing only median and mean D values for each movie
         self.data_list_with_results = self.data_list.copy()
         self.data_list_with_results['D_median']=0.0
@@ -1126,6 +1168,8 @@ class trajectory_analysis:
         self.data_list_with_results['num_tracks_D'] = 0
         self.data_list_with_results['group']=''
         self.data_list_with_results['group_readable'] = ''
+
+        msd_diff_obj = self.make_msd_diff_object()
 
         full_data_i=0
         for group_i,group in enumerate(group_list):
@@ -1146,6 +1190,7 @@ class trajectory_analysis:
                 track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
                 if (len(track_data_df) == 0):
                     self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
+                    self.log.flush()
                     continue
 
                 # check if we need to set the calibration for this file
@@ -1155,6 +1200,7 @@ class trajectory_analysis:
                         exposure = self.calibration_from_metadata[index][1]
                         step_sizes = self.calibration_from_metadata[index][2]
                         msd_diff_obj.micron_per_px = m_px
+
                         if (len(step_sizes) > 0):
                             msd_diff_obj.time_step = np.min(step_sizes)
                         else:
@@ -1168,31 +1214,15 @@ class trajectory_analysis:
 
                             if (len(track_data_df) == 0):
                                 self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
+                                self.log.flush()
                                 continue
 
                 if(self.limit_to_ROIs):
-                    if ((index in self.valid_img_files and self.valid_img_files[index] != '') and
-                        (index in self.valid_roi_files and self.valid_roi_files[index] != '')):
-                        # read in image file and roi file
-                        img = io.imread(self.valid_img_files[index])
-                        roi_file=self.valid_roi_files[index]
-                        if(roi_file.endswith('roi')):
-                            rois = read_roi_file(roi_file)
-                        else:
-                            rois = read_roi_zip(roi_file)
-
-                        # make mask from ROI for track exclusion
-                        (mask,err) = make_mask_from_roi(rois, (img.shape[0],img.shape[1]))
-                        if(err):
-                            self.log.write(f"Only ROIs of type polygon will be used for ROI exclusion. ({self.valid_img_files[index]})")
-
-                        # limit the tracks to the ROI - returns track ids that are fully within mask
-                        valid_id_list = limit_tracks_given_mask(mask, track_data_df.to_numpy())
-                        track_data_df = track_data_df[track_data_df['Trajectory'].isin(valid_id_list)]
-
-                        if (len(track_data_df) == 0):
-                            self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
-                            continue
+                    track_data_df=self.filter_ROI(index, track_data_df)
+                    if (len(track_data_df) == 0):
+                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
+                        self.log.flush()
+                        continue
 
                 track_data=track_data_df.to_numpy()
 
@@ -1205,6 +1235,7 @@ class trajectory_analysis:
                     self.log.write("Note!  File '" + cur_dir + "/" + cur_file +
                                    "' contains 0 tracks of minimum length for calculating Deff (" +
                                    str(msd_diff_obj.min_track_len_linfit) + ")\n")
+                    self.log.flush()
                     self.data_list_with_results.at[index, 'D_median'] = np.nan
                     self.data_list_with_results.at[index, 'D_mean'] = np.nan
                     self.data_list_with_results.at[index, 'D_median_filtered'] = np.nan
