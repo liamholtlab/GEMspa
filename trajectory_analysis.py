@@ -879,13 +879,13 @@ class trajectory_analysis:
         else:
             self.log.write(f"Error in reading {file_name}: all input files must have extension txt or csv. Skipping...")
             self.log.flush()
-            return []
+            return pd.DataFrame()
         track_data_df = pd.read_csv(file_name, sep=sep)
         for col_name in [self.traj_id_col, self.traj_frame_col, self.traj_x_col, self.traj_y_col]:
             if(not (col_name in track_data_df.columns)):
                 self.log.write(f"Error in reading {file_name}: required column {col_name} is missing.\n")
                 self.log.flush()
-                return []
+                return pd.DataFrame()
 
         track_data_df = track_data_df[[self.traj_id_col, self.traj_frame_col, self.traj_x_col, self.traj_y_col]]
         return track_data_df
