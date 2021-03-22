@@ -48,10 +48,13 @@ def make_mask_from_roi(rois, img_shape):
     poly_error=False
     for key in rois.keys():
         roi = rois[key]
-        if (roi['type'] == 'polygon'):
+        if (roi['type'] == 'polygon' or roi['type'] == 'freehand'):
             col_coords = roi['x']
             row_coords = roi['y']
             rr, cc = draw.polygon(row_coords, col_coords)
+            final_img[rr, cc] = 1
+        elif(roi['type'] == 'rectangle'):
+            rr,cc=draw.rectangle((roi['top'],roi['left']), extent=(roi['height'],roi['width']))
             final_img[rr, cc] = 1
         else:
             poly_error=True
