@@ -12,9 +12,30 @@ import datetime
 import re
 from tifffile import TiffFile
 from nd2reader import ND2Reader
-from skimage import io, draw, img_as_bool
+from skimage import io, draw, img_as_bool,measure
 from read_roi import read_roi_zip
 from read_roi import read_roi_file
+from scipy import ndimage
+from matplotlib import cm
+
+def get_roi_name_list_from_mask(mask):
+    mask=mask > 0
+    labeled,n=ndimage.label(mask)
+    names = list(np.unique(labeled))
+    names=sorted(names)
+    names.remove(0)
+    return (names,labeled)
+
+def get_roi_name_list(rois):
+    name_list=[]
+    for key in rois.keys():
+        roi = rois[key]
+        if ((roi['type'] == 'polygon') or
+                (roi['type'] == 'freehand' and 'x' in roi and 'y' in roi) or
+                (roi['type'] == 'rectangle') or
+                (roi['type'] == 'oval')):
+            name_list.append(key)
+    return name_list
 
 def limit_tracks_given_mask(mask_image, track_data):
     # loop through tracks, only use tracks that are fully within the ROI areas (all posiitons evaluate to 1)
@@ -42,23 +63,27 @@ def limit_tracks_given_mask(mask_image, track_data):
     valid_id_list = np.asarray(valid_id_list)
     return valid_id_list
 
-def make_mask_from_roi(rois, img_shape):
-    # loop through ROIs, set interior of ROIs to 1, rest to 0
+def make_mask_from_roi(rois, roi_name, img_shape):
+    # loop through ROIs, only set interior of selected ROI to 1
     final_img = np.zeros(img_shape, dtype='uint8')
     poly_error=False
     for key in rois.keys():
-        roi = rois[key]
-        if (roi['type'] == 'polygon' or roi['type'] == 'freehand'):
-            col_coords = roi['x']
-            row_coords = roi['y']
-            rr, cc = draw.polygon(row_coords, col_coords)
-            final_img[rr, cc] = 1
-        elif(roi['type'] == 'rectangle'):
-            rr,cc=draw.rectangle((roi['top'],roi['left']), extent=(roi['height'],roi['width']))
-            final_img[rr, cc] = 1
-        else:
-            poly_error=True
-            continue
+        if(key == roi_name):
+            roi = rois[key]
+            if (roi['type'] == 'polygon' or (roi['type'] == 'freehand' and 'x' in roi and 'y' in roi)):
+                col_coords = roi['x']
+                row_coords = roi['y']
+                rr, cc = draw.polygon(row_coords, col_coords)
+                final_img[rr, cc] = 1
+            elif (roi['type'] == 'rectangle'):
+                rr, cc = draw.rectangle((roi['top'], roi['left']), extent=(roi['height'], roi['width']))
+                final_img[rr, cc] = 1
+            elif (roi['type'] == 'oval'):
+                rr, cc = draw.ellipse(roi['top'] + roi['height'] / 2, roi['left'] + roi['width'] / 2, roi['height'] / 2, roi['width'] / 2)
+                final_img[rr, cc] = 1
+            else:
+                poly_error=True
+            break
     return (final_img, poly_error)
 
 def read_movie_metadata_tif(file_name):
@@ -195,12 +220,21 @@ class trajectory_analysis:
         self._file_col_name='file name'
         self._movie_file_col_name='movie file dir'
         self._img_file_col_name='image file dir'
-
-        self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name, self._movie_file_col_name, self._img_file_col_name]
+        self._roi_col_name='roi'
 
         #read in the data file, check for the required columns and identify the label columns
         self.error_in_data_file = False
         self.data_list = pd.read_csv(data_file, sep='\t',dtype=str)
+
+        # if limit_to_ROIs, add ROI column
+        if (self.limit_to_ROIs):
+            self.data_list[self._roi_col_name] = ''
+            self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name,
+                                  self._movie_file_col_name, self._img_file_col_name, self._roi_col_name]
+        else:
+            self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name,
+                                  self._movie_file_col_name, self._img_file_col_name]
+
         col_names = list(self.data_list.columns)
         col_names=[x.lower() for x in col_names]
         self.data_list.columns = col_names
@@ -215,95 +249,127 @@ class trajectory_analysis:
                     self.error_in_data_file=True
                     break
 
-        # If we are limiting to ROIs,
-
         # read in the time step information from the movie files
         if(not self.error_in_data_file):
-            if(self.get_calibration_from_metadata or self.make_rainbow_tracks or self.limit_to_ROIs):
-                # read in the movie files to get the meta data / record time steps
-                if(self.get_calibration_from_metadata):
-                    self.data_list[self._movie_file_col_name] = self.data_list[self._movie_file_col_name].fillna('')
-                if(self.make_rainbow_tracks or self.limit_to_ROIs):
-                    self.data_list[self._img_file_col_name] = self.data_list[self._img_file_col_name].fillna('')
 
+            if(self.get_calibration_from_metadata):
+                self.data_list[self._movie_file_col_name] = self.data_list[self._movie_file_col_name].fillna('')
+
+            if(self.make_rainbow_tracks or self.limit_to_ROIs):
+                self.data_list[self._img_file_col_name] = self.data_list[self._img_file_col_name].fillna('')
+
+            if(self.limit_to_ROIs):
+                # first, if limit_to_ROIs, then data_list needs to be extended - one row per ROI
+                # get name from csv file name
+                # csv file:           Traj_<file_name>.csv
+                # roi file:           <file_name>.roi or <file_name>.zip
+                # mask file:          <file_name>_mask.tif (values 0 and 255)
+                new_data_list=[]
+                ind=1
                 for row in self.data_list.iterrows():
-                    ind=row[1][self._index_col_name]
+                    img_dir = row[1][self._img_file_col_name]
+                    csv_file = row[1][self._file_col_name]
+                    roi_file1 = img_dir + "/" + self.img_file_prefix + csv_file[5:-4]
+                    roi_file2 = img_dir + "/" + csv_file[5:-4]
 
-                    #get name from csv file name
-                    # csv file:           Traj_<file_name>.csv
-                    # nd2/tif movie file: <file_name>.tif or <file_name>.nd2
-                    # img file:           <PRE><file_name>.tif
-                    # roi file:           <file_name>.roi or <file_name>.zip
-                    # mask file:          <file_name>_mask.tif (values 0 and 255)
-                    csv_file=row[1][self._file_col_name]
+                    valid_roi_file=''
+                    for roi_file in [roi_file1, roi_file2]:
+                        if (roi_file.endswith(".tif")):
+                            roi_file = roi_file[:-4]
+                        if (os.path.isfile(roi_file + ".roi")):
+                            valid_roi_file = roi_file + ".roi"
+                            break
+                        elif (os.path.isfile(roi_file + ".zip")):
+                            valid_roi_file = roi_file + ".zip"
+                            break
+                        elif (os.path.isfile(roi_file + "_mask.tif")):
+                            valid_roi_file = roi_file + "_mask.tif"
+                            break
 
-                    if(self.make_rainbow_tracks or self.limit_to_ROIs):
-                        img_dir=row[1][self._img_file_col_name]
-                        img_file=img_dir+"/"+self.img_file_prefix+csv_file[5:-4] # Drop "Traj_" at beginning, add prefix, and drop ".csv" at end
-                        if (not img_file.endswith(".tif")):
-                            img_file = img_file + ".tif"
-                        if (os.path.isfile(img_file)):
-                            self.valid_img_files[ind] = img_file
+                    if (valid_roi_file != ''):
+                        # read ROI file, get numbered list of ROIs, add rows and fill in
+                        if(valid_roi_file.endswith('_mask.tif')):
+                            img_mask = io.imread(valid_roi_file)
+                            roi_name_list,labeled_img = get_roi_name_list_from_mask(img_mask)
+                            to_save=os.path.split(valid_roi_file)[1][:-4]+'_LABELS.tif'
+                            io.imsave(self.results_dir + '/' + to_save, labeled_img)
                         else:
-                            self.valid_img_files[ind] = ''
-                            self.log.write(f"Error! Image file not found: {img_file} for rainbow tracks/ROIs.\n")
-
-                        if(self.limit_to_ROIs):
-                            roi_file1=img_dir+"/"+self.img_file_prefix+csv_file[5:-4]
-                            roi_file2=img_dir + "/" + csv_file[5:-4]
-
-                            for roi_file in [roi_file1,roi_file2]:
-                                if(roi_file.endswith(".tif")):
-                                    roi_file=roi_file[:-4]
-                                if(os.path.isfile(roi_file+".roi")):
-                                    self.valid_roi_files[ind]=roi_file+".roi"
-                                    break
-                                elif(os.path.isfile(roi_file+".zip")):
-                                    self.valid_roi_files[ind]=roi_file+".zip"
-                                    break
-                                elif (os.path.isfile(roi_file + "_mask.tif")):
-                                    self.valid_roi_files[ind] = roi_file + "_mask.tif"
-                                    break
-
-                            if(not (ind in self.valid_roi_files)):
-                                self.valid_roi_files[ind]=''
-                                self.log.write(f"Error! ROI file not found, tried: {roi_file1}.roi/zip/_mask.tif, {roi_file2}.roi/.zip/_mask.tif.\n")
-
-                    if(self.get_calibration_from_metadata):
-
-                        movie_dir=row[1][self._movie_file_col_name]
-                        movie_file=movie_dir+"/" + csv_file[5:-4] # Drop "Traj_" at beginning and ".csv" at end
-
-                        #check first for .tif, then nd2
-                        if(not movie_file.endswith(".tif")):
-                            movie_file = movie_file + ".tif"
-                        if(os.path.isfile(movie_file)):
-                            ret_val = read_movie_metadata_tif(movie_file)
-                            # some checks for reading from tiff files - since I'm not sure if the code will always work....!
-                            if(ret_val[0] == ''):
-                                ret_val[0]=self.micron_per_px
-                                self.log.write(f"Error! Micron per pixel could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
-                            if(ret_val[1] == ''):
-                                ret_val[1]=self.time_step
-                                self.log.write(f"Error! Time step could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
-                            if (len(ret_val[2]) == 0 and self.uneven_time_steps):
-                                self.log.write(f"Error! Full time step list could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
-                        else:
-                            movie_file = movie_dir + "/" + csv_file[5:-4] + ".nd2"
-                            if (os.path.isfile(movie_file)):
-                                ret_val = read_movie_metadata_nd2(movie_file)
+                            if(valid_roi_file.endswith('.zip')):
+                                rois = read_roi_zip(valid_roi_file)
                             else:
-                                ret_val=None
-                                self.calibration_from_metadata[ind] = ''
-                                self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
-                        if(ret_val):
-                            if (not self.uneven_time_steps):
-                                ret_val[2] = []  # do not use full time step info / could be messed up anyway in case of tif file
+                                rois = read_roi_file(valid_roi_file)
+                            roi_name_list = get_roi_name_list(rois)
 
-                            self.calibration_from_metadata[ind] = ret_val
-                            self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
-                            if (len(ret_val[2]) > 0 and self.uneven_time_steps):
-                                self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
+                        for roi_name in roi_name_list:
+                            row[1][self._roi_col_name]=roi_name
+                            new_row = list(row[1])
+                            new_data_list.append(new_row)
+                            self.valid_roi_files[ind]=valid_roi_file
+                            ind+=1
+                    else:
+                        row[1][self._roi_col_name] = ''
+                        new_row = list(row[1])
+                        new_data_list.append(new_row)
+                        self.valid_roi_files[ind] = ''
+                        ind+=1
+                        self.log.write(f"Error! ROI file not found, tried: {roi_file1}.roi/zip/_mask.tif, {roi_file2}.roi/.zip/_mask.tif.\n")
+
+                self.data_list=pd.DataFrame(new_data_list, columns=self.data_list.columns)
+                self.data_list['id']=self.data_list.index + 1
+
+            if(self.make_rainbow_tracks):
+                for row in self.data_list.iterrows():
+                    ind = row[1][self._index_col_name]
+                    img_dir = row[1][self._img_file_col_name]
+                    csv_file = row[1][self._file_col_name]
+
+                    img_file = img_dir + "/" + self.img_file_prefix + csv_file[5:-4]  # Drop "Traj_" at beginning, add prefix, and drop ".csv" at end
+                    if (not img_file.endswith(".tif")):
+                        img_file = img_file + ".tif"
+                    if (os.path.isfile(img_file)):
+                        self.valid_img_files[ind] = img_file
+                    else:
+                        self.valid_img_files[ind] = ''
+                        self.log.write(f"Error! Image file not found: {img_file} for rainbow tracks/ROIs.\n")
+
+            if(self.get_calibration_from_metadata):
+                for row in self.data_list.iterrows():
+                    ind = row[1][self._index_col_name]
+                    csv_file = row[1][self._file_col_name]
+
+                    movie_dir = row[1][self._movie_file_col_name]
+                    movie_file = movie_dir + "/" + csv_file[5:-4]  # Drop "Traj_" at beginning and ".csv" at end
+
+                    # check first for .tif, then nd2
+                    if (not movie_file.endswith(".tif")):
+                        movie_file = movie_file + ".tif"
+                    if (os.path.isfile(movie_file)):
+                        ret_val = read_movie_metadata_tif(movie_file)
+                        # some checks for reading from tiff files - since I'm not sure if the code will always work....!
+                        if (ret_val[0] == ''):
+                            ret_val[0] = self.micron_per_px
+                            self.log.write(f"Error! Micron per pixel could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                        if (ret_val[1] == ''):
+                            ret_val[1] = self.time_step
+                            self.log.write(f"Error! Time step could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                        if (len(ret_val[2]) == 0 and self.uneven_time_steps):
+                            self.log.write(f"Error! Full time step list could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                    else:
+                        movie_file = movie_dir + "/" + csv_file[5:-4] + ".nd2"
+                        if (os.path.isfile(movie_file)):
+                            ret_val = read_movie_metadata_nd2(movie_file)
+                        else:
+                            ret_val = None
+                            self.calibration_from_metadata[ind] = ''
+                            self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
+                    if (ret_val):
+                        if (not self.uneven_time_steps):
+                            ret_val[2] = []  # do not use full time step info / could be messed up anyway in case of tif file
+
+                        self.calibration_from_metadata[ind] = ret_val
+                        self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
+                        if (len(ret_val[2]) > 0 and self.uneven_time_steps):
+                            self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
 
             # group by the label columns
             # set_index will throw ValueError if index col has repeats
@@ -893,7 +959,7 @@ class trajectory_analysis:
         track_data_df = track_data_df[[self.traj_id_col, self.traj_frame_col, self.traj_x_col, self.traj_y_col]]
         return track_data_df
 
-    def filter_ROI(self, index, df):
+    def filter_ROI(self, index, roi_name, df):
         if (index in self.valid_roi_files and self.valid_roi_files[index] != ''):
             roi_file = self.valid_roi_files[index]
             err = False
@@ -903,8 +969,10 @@ class trajectory_analysis:
                 rois = read_roi_zip(roi_file)
             elif (roi_file.endswith('_mask.tif')):
                 mask = io.imread(roi_file)
-                mask = img_as_bool(mask)
-                mask = mask.astype('uint8') # changing to 0/1 instead of 0/255, but it should work either way
+                mask=mask>0
+                labeled, n = ndimage.label(mask)
+                mask= (labeled == roi_name)
+                mask = mask.astype('uint8')
             else:
                 self.log.write(f"Invalid ROI file. ({roi_file})\n")
                 self.log.flush()
@@ -915,10 +983,9 @@ class trajectory_analysis:
                 if (index in self.valid_img_files and self.valid_img_files[index] != ''):
                     img = io.imread(self.valid_img_files[index])
 
-                    (mask, err) = make_mask_from_roi(rois, (img.shape[0], img.shape[1]))
+                    (mask, err) = make_mask_from_roi(rois, roi_name, (img.shape[0], img.shape[1]))
                     if (err):
-                        self.log.write(
-                            f"Only ROIs of type polygon will be used for ROI exclusion. Make a mask instead. ({roi_file})\n")
+                        self.log.write(f"Unsupported ROI type.  Make a mask instead. ({roi_file})\n")
                         self.log.flush()
                 else:
                     self.log.write(f"Cannot load tif image file for ROI file: ({roi_file}).\n")
@@ -932,6 +999,23 @@ class trajectory_analysis:
             # no action here - error will already have been printed by class init function #
             pass
         return df
+
+    def set_rows_to_none(self, i, l, g, gr):
+        self.data_list_with_results.at[i, 'D_median'] = np.nan
+        self.data_list_with_results.at[i, 'D_mean'] = np.nan
+        self.data_list_with_results.at[i, 'D_median_filtered'] = np.nan
+        self.data_list_with_results.at[i, 'D_mean_filtered'] = np.nan
+        self.data_list_with_results.at[i, 'num_tracks'] = l
+        self.data_list_with_results.at[i, 'num_tracks_D'] = 0
+        self.data_list_with_results.at[i, 'group'] = g
+        self.data_list_with_results.at[i, 'group_readable'] = gr
+
+    def set_rows_to_none_ss(self, i, max, g, gr):
+        for tlag_i in range(1, max, 1):
+            self.data_list_with_step_sizes.at[i, 'step_size_' + str(tlag_i) + '_median'] = np.nan
+            self.data_list_with_step_sizes.at[i, 'step_size_' + str(tlag_i) + '_mean'] = np.nan
+        self.data_list_with_step_sizes.at[i, 'group'] = g
+        self.data_list_with_step_sizes.at[i, 'group_readable'] = gr
 
     def calculate_step_sizes_and_angles(self, save_per_file_data=False):
         group_list = self.groups
@@ -975,7 +1059,7 @@ class trajectory_analysis:
         rest_cols=rest_cols.astype('str')
         colnames.extend(rest_cols)
         self.data_list_with_step_sizes_full = pd.DataFrame(np.empty((nrows, ncols), dtype=np.str), columns=colnames)
-        self.data_list_with_step_sizes_full.insert(loc=0, column='id', value=0)
+        self.data_list_with_step_sizes_full.insert(loc=0, column='id', value='')
         self.data_list_with_step_sizes_full.insert(loc=endpos+1, column='group', value='')
         self.data_list_with_step_sizes_full.insert(loc=endpos+2, column='group_readable', value='')
         self.data_list_with_step_sizes_full.insert(loc=endpos+3, column='tlag', value=0)
@@ -1019,17 +1103,31 @@ class trajectory_analysis:
                     file_str += (str(label) + '_')
                 file_str = file_str[:-1]
 
+            group_readable = file_str
+            if (self.group_str_to_readable and file_str in self.group_str_to_readable):
+                group_readable = self.group_str_to_readable[file_str]
+
             for index, data in group_df.iterrows():
                 cur_dir = data[self._dir_col_name]
                 cur_file = data[self._file_col_name]
 
-                self.log.write("Reading track data file: "+cur_dir + '/' + cur_file+"\n")
-                self.log.flush()
+                print(cur_file)
+                print(data[self._roi_col_name])
+
                 track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
                 if (len(track_data_df) == 0):
                     self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
                     self.log.flush()
+                    self.set_rows_to_none_ss(index, self.max_tlag_step_size + 1, file_str, group_readable)
                     continue
+
+                if (self.limit_to_ROIs):
+                    track_data_df = self.filter_ROI(index, data[self._roi_col_name], track_data_df)
+                    if (len(track_data_df) == 0):
+                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
+                        self.log.flush()
+                        self.set_rows_to_none_ss(index, self.max_tlag_step_size + 1, file_str, group_readable)
+                        continue
 
                 #check if we need to set the calibration for this file
                 if(self.get_calibration_from_metadata):
@@ -1053,14 +1151,8 @@ class trajectory_analysis:
                             if (len(track_data_df) == 0):
                                 self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
                                 self.log.flush()
+                                self.set_rows_to_none_ss(index, self.max_tlag_step_size + 1, file_str, group_readable)
                                 continue
-
-                if (self.limit_to_ROIs):
-                    track_data_df = self.filter_ROI(index, track_data_df)
-                    if (len(track_data_df) == 0):
-                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
-                        self.log.flush()
-                        continue
 
                 track_data = track_data_df.to_numpy()
 
@@ -1068,14 +1160,18 @@ class trajectory_analysis:
                 msd_diff_obj.set_track_data(track_data)
                 msd_diff_obj.step_sizes_and_angles()
 
-                group_readable = file_str
-                if (self.group_str_to_readable and file_str in self.group_str_to_readable):
-                    group_readable = self.group_str_to_readable[file_str]
-
                 cur_data_step_sizes = msd_diff_obj.step_sizes
-                cur_data_angles = msd_diff_obj.angles
+                #cur_data_angles = msd_diff_obj.angles
                 ss_len=len(cur_data_step_sizes)
-                a_len=len(cur_data_angles)
+                #a_len=len(cur_data_angles)
+
+                if(ss_len == 0):
+                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file +
+                                   "' contains 0 tracks of minimum length for calculating step sizes/angles (" +
+                                   str(msd_diff_obj.min_track_len_step_size) + ")\n")
+                    self.log.flush()
+                    self.set_rows_to_none_ss(index, self.max_tlag_step_size+1, file_str, group_readable)
+                    continue
 
                 #fill step size data
                 self.data_list_with_step_sizes_full.loc[full_data_ss_i:full_data_ss_i+ss_len-1,'id']=index
@@ -1108,7 +1204,7 @@ class trajectory_analysis:
                     msd_diff_obj.save_angles(file_name=file_str + '_' + str(index) + "_angles.txt")
 
                 full_data_ss_i += len(cur_data_step_sizes)
-                full_data_a_i +=  len(cur_data_angles)
+                #full_data_a_i +=  len(cur_data_angles)
 
                 self.log.write("Processed " + str(index) +" "+cur_file + "for step sizes and angles.\n")
                 self.log.flush()
@@ -1118,6 +1214,7 @@ class trajectory_analysis:
         if ((self.get_calibration_from_metadata or self.limit_to_ROIs)):
             self.data_list_with_step_sizes_full=self.data_list_with_step_sizes_full.replace('', np.NaN)
             self.data_list_with_step_sizes_full.dropna(axis=1,how='all',inplace=True)
+            self.data_list_with_step_sizes_full.dropna(axis=0,subset=['id',],inplace=True)
 
             #self.data_list_with_angles = self.data_list_with_angles.replace('', np.NaN) # TODO test and uncomment
             #self.data_list_with_angles.dropna(axis=1, how='all', inplace=True)
@@ -1186,128 +1283,187 @@ class trajectory_analysis:
                     file_str += (str(label) + '_')
                 file_str = file_str[:-1]
 
-            for index,data in group_df.iterrows():
-                cur_dir=data[self._dir_col_name]
-                cur_file=data[self._file_col_name]
+            group_readable = file_str
+            if (self.group_str_to_readable and file_str in self.group_str_to_readable):
+                group_readable = self.group_str_to_readable[file_str]
 
-                track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
-                if (len(track_data_df) == 0):
-                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
-                    self.log.flush()
-                    continue
+            # further group by csv file name (it may not be unique)
+            files_list = np.unique(group_df[self._file_col_name])
+            for cur_file in files_list:
+                files_group = group_df[group_df[self._file_col_name]==cur_file]
+                cur_fig=None
+                cur_fig_ss=None
+                cur_fig_roi=None
+                cur_ax=None
+                cur_ax_ss=None
+                cur_ax_roi=None
+                # set up the figure axes for making rainbow tracks
+                if (self.make_rainbow_tracks):
+                    common_index=files_group.index[0] # for the same file, the image dir is the same for all rows, just take first
+                    if (common_index in self.valid_img_files and self.valid_img_files[common_index] != ''):
+                        bk_img = io.imread(self.valid_img_files[common_index])
 
-                # check if we need to set the calibration for this file
-                if (self.get_calibration_from_metadata):
-                    if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
-                        m_px = self.calibration_from_metadata[index][0]
-                        exposure = self.calibration_from_metadata[index][1]
-                        step_sizes = self.calibration_from_metadata[index][2]
-                        msd_diff_obj.micron_per_px = m_px
+                        # plot figure to draw tracks by Deff with image in background
+                        cur_fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+                        cur_ax = cur_fig.add_subplot(1, 1, 1)
+                        cur_ax.axis("off")
+                        cur_ax.imshow(bk_img, cmap="gray")
 
-                        if (len(step_sizes) > 0):
-                            msd_diff_obj.time_step = np.min(step_sizes)
-                        else:
-                            msd_diff_obj.time_step = exposure
+                        # plot figure to draw tracks by ss with image in background
+                        cur_fig_ss = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+                        cur_ax_ss = cur_fig_ss.add_subplot(1, 1, 1)
+                        cur_ax_ss.axis("off")
+                        cur_ax_ss.imshow(bk_img, cmap="gray")
 
-                        #if we have varying step sizes, must filter tracks
-                        if (len(np.unique(step_sizes)) > 0):   ## TODO fix this so it checks whether the largest diff. is > mindiff
-                            track_data_df = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution) #0.005)
-                            #save the new, filtered CSVs
-                            track_data_df.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv")
+                        # plot figure to draw tracks by roi with image in background
+                        cur_fig_roi = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+                        cur_ax_roi = cur_fig_roi.add_subplot(1, 1, 1)
+                        cur_ax_roi.axis("off")
+                        cur_ax_roi.imshow(bk_img, cmap="gray")
 
-                            if (len(track_data_df) == 0):
-                                self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
-                                self.log.flush()
-                                continue
+                #for index,data in group_df.iterrows():
+                count=0
+                roi_cmap = cm.get_cmap('jet', len(files_group))
+                roi_colors = roi_cmap(range(1, len(files_group)))
+                for index,data in files_group.iterrows():
+                    cur_dir=data[self._dir_col_name]
+                    cur_file=data[self._file_col_name]
 
-                if(self.limit_to_ROIs):
-                    track_data_df=self.filter_ROI(index, track_data_df)
+                    print(cur_file)
+                    print(data[self._roi_col_name])
+
+                    track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
                     if (len(track_data_df) == 0):
-                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
+                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
                         self.log.flush()
+                        self.set_rows_to_none(index, 0, file_str, group_readable)
                         continue
 
-                track_data=track_data_df.to_numpy()
+                    if (self.limit_to_ROIs):
+                        track_data_df = self.filter_ROI(index, data[self._roi_col_name], track_data_df)
+                        if (len(track_data_df) == 0):
+                            self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
+                            self.log.flush()
+                            self.set_rows_to_none(index, 0, file_str, group_readable)
+                            continue
 
-                #for this movie, calculate msd and diffusion for each track
-                msd_diff_obj.set_track_data(track_data)
-                msd_diff_obj.msd_all_tracks()
-                msd_diff_obj.fit_msd()
+                    # check if we need to set the calibration for this file
+                    if (self.get_calibration_from_metadata):
+                        if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
+                            m_px = self.calibration_from_metadata[index][0]
+                            exposure = self.calibration_from_metadata[index][1]
+                            step_sizes = self.calibration_from_metadata[index][2]
+                            msd_diff_obj.micron_per_px = m_px
 
-                if(len(msd_diff_obj.D_linfits)==0):
-                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file +
-                                   "' contains 0 tracks of minimum length for calculating Deff (" +
-                                   str(msd_diff_obj.min_track_len_linfit) + ")\n")
-                    self.log.flush()
-                    self.data_list_with_results.at[index, 'D_median'] = np.nan
-                    self.data_list_with_results.at[index, 'D_mean'] = np.nan
-                    self.data_list_with_results.at[index, 'D_median_filtered'] = np.nan
-                    self.data_list_with_results.at[index, 'D_mean_filtered'] = np.nan
+                            if (len(step_sizes) > 0):
+                                msd_diff_obj.time_step = np.min(step_sizes)
+                            else:
+                                msd_diff_obj.time_step = exposure
+
+                            #if we have varying step sizes, must filter tracks
+                            if (len(np.unique(step_sizes)) > 0):   ## TODO fix this so it checks whether the largest diff. is > mindiff
+                                track_data_df = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution) #0.005)
+                                #save the new, filtered CSVs
+                                track_data_df.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv")
+
+                                if (len(track_data_df) == 0):
+                                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
+                                    self.log.flush()
+                                    self.set_rows_to_none(index, 0, file_str, group_readable)
+                                    continue
+
+                    track_data=track_data_df.to_numpy()
+
+                    #for this movie, calculate msd and diffusion for each track
+                    msd_diff_obj.set_track_data(track_data)
+                    msd_diff_obj.msd_all_tracks()
+                    msd_diff_obj.fit_msd()
+
+                    if(len(msd_diff_obj.D_linfits)==0):
+                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file +
+                                       "' contains 0 tracks of minimum length for calculating Deff (" +
+                                       str(msd_diff_obj.min_track_len_linfit) + ")\n")
+                        self.log.flush()
+                        self.set_rows_to_none(index,len(msd_diff_obj.track_lengths),file_str,group_readable)
+                        continue
+
+                    # rainbow tracks
+                    if(self.make_rainbow_tracks):
+                        if(cur_ax != None):
+                            msd_diff_obj.save_tracks_to_img(cur_ax, len_cutoff='none', remove_tracks=False,
+                                                        min_Deff=self.min_D_rainbow_tracks,
+                                                        max_Deff=self.max_D_rainbow_tracks, lw=0.1)
+                        if(cur_ax_ss != None):
+                            msd_diff_obj.save_tracks_to_img_ss(cur_ax_ss, min_ss=self.min_ss_rainbow_tracks,
+                                                           max_ss=self.max_ss_rainbow_tracks, lw=0.1)
+                        if (cur_ax_roi != None):
+                            msd_diff_obj.save_tracks_to_img_clr(cur_ax_roi, lw=0.1, color=roi_colors[count])
+
+                    D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
+                    D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
+
+                    D_linfits_filtered = msd_diff_obj.D_linfits[np.where(
+                        (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] <= self.max_D_cutoff) &
+                        (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] >= self.min_D_cutoff))]
+
+                    if(len(D_linfits_filtered)==0):
+                        D_median_filt = np.nan
+                        D_mean_filt = np.nan
+                    else:
+                        D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
+                        D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
+
+                    cur_data = msd_diff_obj.D_linfits[:,1:] #don't need track id column
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'id'] = index
+                    for k in range(len(self.data_list.columns)):
+                        self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),k+1]=self.data_list.loc[index][k]
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'group']=file_str
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'group_readable']=group_readable
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median']=D_median
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean']=D_mean
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median_filt']=D_median_filt
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean_filt']=D_mean_filt
+
+                    # ADD: D, err, r_sq, rmse, track_len, D_track_len, for each track
+                    next_col = len(full_results1.columns) + len(full_results2_cols1)
+                    self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),next_col:next_col+len(cur_data[0])]=cur_data
+
+                    self.data_list_with_results.at[index, 'D_median'] = D_median
+                    self.data_list_with_results.at[index, 'D_mean'] = D_mean
+                    self.data_list_with_results.at[index, 'D_median_filtered'] = D_median_filt
+                    self.data_list_with_results.at[index, 'D_mean_filtered'] = D_mean_filt
                     self.data_list_with_results.at[index, 'num_tracks'] = len(msd_diff_obj.track_lengths)
-                    self.data_list_with_results.at[index, 'num_tracks_D'] = 0
+                    self.data_list_with_results.at[index, 'num_tracks_D'] = len(msd_diff_obj.D_linfits)
                     self.data_list_with_results.at[index, 'group'] = file_str
-                    self.data_list_with_results.at[index, 'group_readable'] = group_readable
-                    continue
+                    self.data_list_with_results.at[index, 'group_readable']=group_readable
 
-                # rainbow tracks
+                    if(save_per_file_data):
+                        msd_diff_obj.save_msd_data(file_name=file_str + '_' + str(index) + "_MSD.txt")
+                        msd_diff_obj.save_fit_data(file_name=file_str + '_' + str(index) + "_Dlin.txt")
+
+                    full_data_i += len(cur_data)
+                    self.log.write("Processed "+str(index) +" "+cur_file+" for MSD and Diffusion coeff.\n")
+                    self.log.flush()
+
+                    count += 1
+
+                # ran through all the rows with same csv/image file -- now save the rainbow tracks
                 if(self.make_rainbow_tracks):
-                    if(index in self.valid_img_files and self.valid_img_files[index] != ''):
-                        out_file=os.path.split(self.valid_img_files[index])[1][:-4]+'_tracks_Deff.tif'
-                        msd_diff_obj.rainbow_tracks(self.valid_img_files[index], self.results_dir + '/' + out_file+'_tracks_Deff.tif',
-                                                    len_cutoff='none', remove_tracks=False,
-                                                    min_Deff=self.min_D_rainbow_tracks, max_Deff=self.max_D_rainbow_tracks, lw=0.1)
-                        msd_diff_obj.rainbow_tracks_ss(self.valid_img_files[index], self.results_dir + '/' + out_file+'_tracks_ss.tif',
-                                                       min_ss=self.min_ss_rainbow_tracks, max_ss=self.max_ss_rainbow_tracks, lw=0.1)
+                    # save figure of lines plotted on bk_img
+                    cur_fig.tight_layout()
+                    out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_Deff.tif'
+                    cur_fig.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
+                    plt.close(cur_fig)
 
-                D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
-                D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
+                    cur_fig_ss.tight_layout()
+                    out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_ss.tif'
+                    cur_fig_ss.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
+                    plt.close(cur_fig_ss)
 
-                D_linfits_filtered = msd_diff_obj.D_linfits[np.where(
-                    (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] <= self.max_D_cutoff) &
-                    (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] >= self.min_D_cutoff))]
-
-                if(len(D_linfits_filtered)==0):
-                    D_median_filt = np.nan
-                    D_mean_filt = np.nan
-                else:
-                    D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
-                    D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
-
-                group_readable = file_str
-                if (self.group_str_to_readable and file_str in self.group_str_to_readable):
-                    group_readable = self.group_str_to_readable[file_str]
-
-                cur_data = msd_diff_obj.D_linfits[:,1:] #don't need track id column
-                self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'id'] = index
-                for k in range(len(self.data_list.columns)):
-                    self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),k+1]=self.data_list.loc[index][k]
-                self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'group']=file_str
-                self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'group_readable']=group_readable
-                self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median']=D_median
-                self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean']=D_mean
-                self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median_filt']=D_median_filt
-                self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean_filt']=D_mean_filt
-
-                # ADD: D, err, r_sq, rmse, track_len, D_track_len, for each track
-                next_col = len(full_results1.columns) + len(full_results2_cols1)
-                self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),next_col:next_col+len(cur_data[0])]=cur_data
-
-                self.data_list_with_results.at[index, 'D_median'] = D_median
-                self.data_list_with_results.at[index, 'D_mean'] = D_mean
-                self.data_list_with_results.at[index, 'D_median_filtered'] = D_median_filt
-                self.data_list_with_results.at[index, 'D_mean_filtered'] = D_mean_filt
-                self.data_list_with_results.at[index, 'num_tracks'] = len(msd_diff_obj.track_lengths)
-                self.data_list_with_results.at[index, 'num_tracks_D'] = len(msd_diff_obj.D_linfits)
-                self.data_list_with_results.at[index, 'group'] = file_str
-                self.data_list_with_results.at[index, 'group_readable']=group_readable
-
-                if(save_per_file_data):
-                    msd_diff_obj.save_msd_data(file_name=file_str + '_' + str(index) + "_MSD.txt")
-                    msd_diff_obj.save_fit_data(file_name=file_str + '_' + str(index) + "_Dlin.txt")
-
-                full_data_i += len(cur_data)
-                self.log.write("Processed "+str(index) +" "+cur_file+" for MSD and Diffusion coeff.\n")
-                self.log.flush()
+                    cur_fig_roi.tight_layout()
+                    out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_roi.tif'
+                    cur_fig_roi.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
+                    plt.close(cur_fig_roi)
 
         self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
 

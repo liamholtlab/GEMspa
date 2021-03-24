@@ -111,6 +111,11 @@ class msd_diffusion:
         # calculates step sizes and angles for tracks with min. length that is given for Linear fit
         # steps sizes in *microns*
         ids = self.track_lengths[self.track_lengths[:,1] >= self.min_track_len_step_size][:,0]
+        if(len(ids) == 0):
+            self.step_sizes=np.asarray([])
+            self.angles=np.asarray([])
+            return
+
         print("SS/Angles number of tracks:", len(ids))
         track_lens=self.track_lengths[self.track_lengths[:,1] >= self.min_track_len_step_size][:,1]
 
@@ -346,7 +351,6 @@ class msd_diffusion:
         # min_ss/max_ss are in microns (not pixels)
 
         ids = np.unique(self.tracks[:, self.tracks_id_col])
-        count=0
         for id in ids:
             cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
             if (len(cur_track) >= self.min_track_len_step_size):
@@ -363,15 +367,19 @@ class msd_diffusion:
                     ax.plot([cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
                             [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
                             '-', color=cm.jet(show_color), linewidth=lw)
-                    count += 1
-        # print(count, " tracks plotted.")
+
+    def save_tracks_to_img_clr(self, ax, lw=0.1, color='blue'):
+        ids = np.unique(self.tracks[:, self.tracks_id_col])
+        for id in ids:
+            cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
+            if (len(cur_track) >= self.min_track_len_step_size):
+                ax.plot(cur_track[:,self.tracks_x_col],cur_track[:,self.tracks_y_col],'-',color=color,linewidth=lw)
 
     def save_tracks_to_img(self, ax, len_cutoff='none', remove_tracks=False, min_Deff=0.01, max_Deff=2, lw=0.1):
         if(len_cutoff == 'default'):
             len_cutoff=self.track_len_cutoff_linfit
 
         ids=np.unique(self.tracks[:,self.tracks_id_col])
-        count=0
         for id in ids:
             cur_track=self.tracks[self.tracks[:,self.tracks_id_col]==id]
             if(len(cur_track) >= self.min_track_len_linfit):
@@ -393,8 +401,6 @@ class msd_diffusion:
 
                     show_color=D/max_Deff
                     ax.plot(x_vals, y_vals, '-', color=cm.jet(show_color), linewidth=lw)
-                    count+=1
-        #print(count, " tracks plotted.")
 
     def rainbow_tracks(self, img_file, output_file, len_cutoff='none', remove_tracks=False, min_Deff=0.01, max_Deff=2, lw=0.1):
         # given img file, plots tracks on img
