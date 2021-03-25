@@ -1324,7 +1324,7 @@ class trajectory_analysis:
                 #for index,data in group_df.iterrows():
                 count=0
                 roi_cmap = cm.get_cmap('jet', len(files_group))
-                roi_colors = roi_cmap(range(1, len(files_group)+1))
+                roi_colors = roi_cmap(range(1, len(files_group)))
                 for index,data in files_group.iterrows():
                     cur_dir=data[self._dir_col_name]
                     cur_file=data[self._file_col_name]
@@ -1398,7 +1398,6 @@ class trajectory_analysis:
                                                            max_ss=self.max_ss_rainbow_tracks, lw=0.1)
                         if (cur_ax_roi != None):
                             msd_diff_obj.save_tracks_to_img_clr(cur_ax_roi, lw=0.1, color=roi_colors[count])
-                            count += 1
 
                     D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
                     D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
@@ -1446,7 +1445,7 @@ class trajectory_analysis:
                     self.log.write("Processed "+str(index) +" "+cur_file+" for MSD and Diffusion coeff.\n")
                     self.log.flush()
 
-
+                    count += 1
 
                 # ran through all the rows with same csv/image file -- now save the rainbow tracks
                 if(self.make_rainbow_tracks):
