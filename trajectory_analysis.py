@@ -554,62 +554,63 @@ class trajectory_analysis:
 
                 plt.close('all')
 
-    def plot_distribution_angles(self, tlags=[1,2,3]):
+    def plot_distribution_angles(self, tlags=[1, 2, 3], plot_type='gkde', bin_size=1):
         self.data_list_with_angles = pd.read_csv(self.results_dir + "/all_data_angles.txt", index_col=0,
-                                                     sep='\t', low_memory=False)
+                                                 sep='\t', low_memory=False)
         start_pos = self.data_list_with_angles.columns.get_loc("0")
         stop_pos = len(self.data_list_with_angles.columns) - start_pos - 1
 
         tlags_ = []
         for tlag in tlags:
-            if (tlag in np.unique(self.data_list_with_step_sizes['tlag'])):
+            if (tlag in np.unique(self.data_list_with_angles['tlag'])):
                 tlags_.append(tlag)
 
         for group in np.unique(self.data_list_with_angles['group_readable']):
             group_data = self.data_list_with_angles[self.data_list_with_angles['group_readable'] == group]
 
-            for tlag in tlags_:  # cur_kde_data['tlag']:
+            for tlag in tlags_:
                 fig = plt.figure()
                 ax = fig.add_subplot(1, 1, 1)
                 cur_tlag_data = group_data[group_data['tlag'] == tlag]
-                # to_combine_full=pd.DataFrame()
-                to_combine_2 = []
-                for id in cur_tlag_data['id'].unique():
-                    cur_kde_data = cur_tlag_data[cur_tlag_data['id'] == id]
-
-                    obs_dist = np.asarray(cur_kde_data.loc[:, "0":str(stop_pos)].iloc[0].dropna())
-
-                    # sns.kdeplot(data=obs_dist,ax=ax)
-                    gkde = stats.gaussian_kde(obs_dist)
-
-                    ind = np.arange(0, 180 + 0.01, 0.01)
-                    kdepdf = gkde.evaluate(ind)
-                    to_combine_2.append(kdepdf)
-
-                    # to_combine=pd.DataFrame()
-                    # to_combine['y_val']=kdepdf
-                    # to_combine['x_val']=ind
-                    # to_combine['id']=id
-                    # to_combine_full=pd.concat([to_combine_full,to_combine])
-
-                    ax.plot(ind, kdepdf)
 
                 fig2 = plt.figure()
                 ax2 = fig2.add_subplot(1, 1, 1)
+                obs_dist = np.asarray(cur_tlag_data.loc[:, "0":str(stop_pos)]).flatten()
+                obs_dist = obs_dist[np.logical_not(np.isnan(obs_dist))]
+                plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
 
-                to_combine_2 = np.asarray(to_combine_2)
-                medians = np.median(to_combine_2, axis=0)
-                ax2.plot(ind, medians)
-                #errs = stats.sem(to_combine_2, axis=0)
-                errs = np.std(to_combine_2, axis=0)
-                ax2.fill_between(ind, medians - errs, medians + errs, alpha=0.4)
+                if (plot_type == 'gkde'):
+                    gkde = stats.gaussian_kde(obs_dist)
+                    plotting_kdepdf = gkde.evaluate(plotting_ind)
+                    ax2.plot(plotting_ind, plotting_kdepdf)
+                else:
+                    ax2.hist(obs_dist, bins=plotting_ind, histtype="bar", density=True)
 
-                # sns.lineplot(x="x_val",y="y_val",data=to_combine_full, estimator=np.median, ci="sd", ax=ax2)
+                ax2.set_xlabel("angle (degrees)")
+                ax2.set_ylabel("frequency")
 
-                fig2.savefig(self.results_dir + '/summary_tlag' + str(tlag) + '_' + group + '_angles.pdf')
+                fig2.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_' + str(
+                    group) + '_angles_' + plot_type + '.pdf')
                 fig2.clf()
 
-                fig.savefig(self.results_dir + '/all_tlag' + str(tlag) + '_' + group + '_angles.pdf')
+                for id in cur_tlag_data['id'].unique():
+                    cur_kde_data = cur_tlag_data[cur_tlag_data['id'] == id]
+                    obs_dist = np.asarray(cur_kde_data.loc[:, "0":str(stop_pos)].iloc[0].dropna())
+                    plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+
+                    if (plot_type == 'gkde'):
+                        gkde = stats.gaussian_kde(obs_dist)
+                        plotting_kdepdf = gkde.evaluate(plotting_ind)
+                        ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_kde_data['file name'].iloc[0]))
+                    else:
+                        ax.hist(obs_dist, bins=plotting_ind, histtype="bar", density=True,
+                                label=str(cur_kde_data['file name'].iloc[0]), alpha=0.6)
+
+                ax.set_xlabel("angles (degrees)")
+                ax.set_ylabel("frequency")
+                ax.legend()
+                fig.savefig(
+                    self.results_dir + '/all_tlag' + str(tlag) + '_' + str(group) + '_angles_' + plot_type + '.pdf')
                 fig.clf()
 
                 plt.close('all')
