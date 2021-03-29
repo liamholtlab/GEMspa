@@ -534,6 +534,8 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.calculate_step_sizes_and_angles()
                     traj_an.plot_distribution_step_sizes(tlags=[1,])
                     traj_an.plot_distribution_Deff()
+                    if(limit_with_rois):
+                        traj_an.make_plot_roi_area()
 
                     #traj_an.plot_distribution_angles(tlags=[1,])
 

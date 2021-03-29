@@ -859,7 +859,7 @@ class trajectory_analysis:
                 fig.savefig(self.results_dir + '/summary_' + y_col + '.pdf')
                 fig.clf()
 
-    def make_plot_combined_data(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[]):
+    def make_plot_combined_data(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10):
 
         self.data_list_with_results_full = pd.read_csv(self.results_dir + '/'+"all_data.txt",index_col=0,sep='\t')
 
@@ -906,7 +906,7 @@ class trajectory_analysis:
         fig.savefig(self.results_dir + '/summary_combined_D.pdf')
         fig.clf()
 
-    def make_plot(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[]):
+    def make_plot(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10):
         # label_order should match the group labels (i.e. group/group_readable)
         # it is just imposing an order for plotting
 
@@ -917,6 +917,7 @@ class trajectory_analysis:
 
         self.data_list_with_results['group']=self.data_list_with_results['group'].astype('str')
         self.data_list_with_results['group_readable'] = self.data_list_with_results['group_readable'].astype('str')
+
 
         if(label_order):
             label_order_=[]
@@ -935,15 +936,16 @@ class trajectory_analysis:
                                                                        plot_label,self.data_list_with_results['group_readable'])
             labels=plot_labels
 
+        data_to_plot=self.data_list_with_results[self.data_list_with_results['num_tracks_D']>min_pts]
         for y_col in ['D_median','D_median_filtered']:
             fig = plt.figure()
             ax = fig.add_subplot(1, 1, 1)
             if(clrs != []):
-                sns.boxplot(x="group_readable", y=y_col, data=self.data_list_with_results, order=labels, fliersize=0, ax=ax, palette=clrs)
+                sns.boxplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, fliersize=0, ax=ax, palette=clrs)
             else:
-                sns.boxplot(x="group_readable", y=y_col, data=self.data_list_with_results, order=labels, fliersize=0, ax=ax)
+                sns.boxplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, fliersize=0, ax=ax)
 
-            sns.swarmplot(x="group_readable", y=y_col, data=self.data_list_with_results, order=labels, color=".25", size=4, ax=ax)
+            sns.swarmplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, color=".25", size=4, ax=ax)
             #ax.set(xlabel="X Label", ylabel = "Y Label")
             ax.set(xlabel=xlabel)
             if (ylabel != ''):
@@ -955,7 +957,7 @@ class trajectory_analysis:
             fig.savefig(self.results_dir + '/summary_'+y_col+'.pdf')
             fig.clf()
 
-    def make_plot_roi_area(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[]):
+    def make_plot_roi_area(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10):
         #make plot of ROI Area vs. med(Deff)
         self.data_list_with_results = pd.read_csv(self.results_dir + '/' + "summary.txt", sep='\t')
 
@@ -980,15 +982,16 @@ class trajectory_analysis:
                     plot_label, self.data_list_with_results['group_readable'])
             labels = plot_labels
 
+        data_to_plot = self.data_list_with_results[self.data_list_with_results['num_tracks_D'] > min_pts]
         for y_col in ['D_median','D_median_filtered']:
             fig = plt.figure()
             ax = fig.add_subplot(1, 1, 1)
 
             if (clrs != []):
-                sns.scatterplot(x="area", y=y_col, data=self.data_list_with_results, hue='group_readable',
+                sns.scatterplot(x="area", y=y_col, data=data_to_plot, hue='group_readable',
                                 ax=ax, palette=clrs)
             else:
-                sns.scatterplot(x="area", y=y_col, data=self.data_list_with_results, hue='group_readable', ax=ax)
+                sns.scatterplot(x="area", y=y_col, data=data_to_plot, hue='group_readable', ax=ax)
 
             if (xlabel != ''):
                 ax.set(xlabel=xlabel)
