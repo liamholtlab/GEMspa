@@ -226,14 +226,10 @@ class trajectory_analysis:
         self.error_in_data_file = False
         self.data_list = pd.read_csv(data_file, sep='\t',dtype=str)
 
-        # if limit_to_ROIs, add ROI column
-        if (self.limit_to_ROIs):
-            self.data_list[self._roi_col_name] = ''
-            self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name,
-                                  self._movie_file_col_name, self._img_file_col_name, self._roi_col_name]
-        else:
-            self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name,
-                                  self._movie_file_col_name, self._img_file_col_name]
+        # add ROI column
+        self.data_list[self._roi_col_name] = ''
+        self.known_columns = [self._index_col_name, self._dir_col_name, self._file_col_name,
+                              self._movie_file_col_name, self._img_file_col_name, self._roi_col_name]
 
         col_names = list(self.data_list.columns)
         col_names=[x.lower() for x in col_names]
@@ -243,8 +239,8 @@ class trajectory_analysis:
                 col_names.remove(col)
             else:
                 if( (col != self._movie_file_col_name and col != self._img_file_col_name) or
-                    (col == self._movie_file_col_name and self.get_calibration_from_metadata) or
-                    (col == self._img_file_col_name and (self.make_rainbow_tracks or self.limit_to_ROIs)) ):
+                (col == self._movie_file_col_name and self.get_calibration_from_metadata) or
+                (col == self._img_file_col_name and (self.make_rainbow_tracks or self.limit_to_ROIs)) ):
                     self.log.write(f"Error! Required column {col} not found in input file {self.data_file}\n")
                     self.error_in_data_file=True
                     break
@@ -446,7 +442,7 @@ class trajectory_analysis:
             labels.insert(0, l1)
         ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
 
-    def plot_distribution_Deff(self, plot_type='gkde', bin_size=0.02):
+    def plot_distribution_Deff(self, plot_type='gkde', bin_size=0.02 , min_pts=20, make_legend=False):
         self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
@@ -455,48 +451,53 @@ class trajectory_analysis:
         for group in np.unique(self.data_list_with_results_full['group_readable']):
             group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
 
-            fig = plt.figure()
-            ax = fig.add_subplot(1, 1, 1)
-
-            fig2 = plt.figure()
-            ax2 = fig2.add_subplot(1, 1, 1)
             obs_dist = group_data['D']
-            plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
-            if(plot_type == 'gkde'):
-                gkde = stats.gaussian_kde(obs_dist)
-                plotting_kdepdf = gkde.evaluate(plotting_ind)
-                ax2.plot(plotting_ind, plotting_kdepdf)
-            else:
-                ax2.hist(obs_dist, bins=plotting_ind, histtype="step", density=True)
+            if(len(obs_dist)>min_pts):
+                fig = plt.figure()
+                ax = fig.add_subplot(1, 1, 1)
 
-            ax2.set_xlabel("Deff")
-            ax2.set_ylabel("frequency")
+                fig2 = plt.figure()
+                ax2 = fig2.add_subplot(1, 1, 1)
 
-            fig2.savefig(self.results_dir + "/combined_" + str(group) + "_Deff_"+plot_type+".pdf")
-            fig2.clf()
-
-            #filter by file name
-            for id in np.unique(group_data["id"]):
-                cur_data = group_data[group_data["id"]==id]
-                obs_dist=cur_data['D']
                 plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
-
-                if (plot_type == 'gkde'):
+                if(plot_type == 'gkde'):
                     gkde = stats.gaussian_kde(obs_dist)
                     plotting_kdepdf = gkde.evaluate(plotting_ind)
-                    ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_data['file name'].iloc[0]))
+                    ax2.plot(plotting_ind, plotting_kdepdf)
                 else:
-                    ax.hist(obs_dist, bins=plotting_ind, histtype="step", density=True,
-                            label=str(cur_data['file name'].iloc[0]), alpha=0.6)
+                    ax2.hist(obs_dist, bins=plotting_ind, histtype="step", density=True)
 
-            ax.set_xlabel("Deff")
-            ax.set_ylabel("frequency")
-            ax.legend()
-            fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
-            fig.clf()
-            plt.close(fig)
+                ax2.set_xlabel("Deff")
+                ax2.set_ylabel("frequency")
 
-    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_type='gkde', bin_size=0.01):
+                fig2.savefig(self.results_dir + "/combined_" + str(group) + "_Deff_"+plot_type+".pdf")
+                fig2.clf()
+                plt.close(fig2)
+
+                #filter by file name
+                for id in np.unique(group_data["id"]):
+                    cur_data = group_data[group_data["id"]==id]
+                    obs_dist=cur_data['D']
+                    if(len(obs_dist)>min_pts):
+                        plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+
+                        if (plot_type == 'gkde'):
+                            gkde = stats.gaussian_kde(obs_dist)
+                            plotting_kdepdf = gkde.evaluate(plotting_ind)
+                            ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_data[self._file_col_name].iloc[0])+'-'+str(cur_data[self._roi_col_name].iloc[0]))
+                        else:
+                            ax.hist(obs_dist, bins=plotting_ind, histtype="step", density=True,
+                                    label=str(cur_data[self._file_col_name].iloc[0])+'-'+str(cur_data[self._roi_col_name].iloc[0]), alpha=0.6)
+
+                ax.set_xlabel("Deff")
+                ax.set_ylabel("frequency")
+                if(make_legend):
+                    ax.legend()
+                fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
+                fig.clf()
+                plt.close(fig)
+
+    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_type='gkde', bin_size=0.01, min_pts=20, make_legend=False):
         self.data_list_with_step_sizes_full = pd.read_csv(self.results_dir + "/all_data_step_sizes.txt", index_col=0, sep='\t', low_memory=False)
         start_pos = self.data_list_with_step_sizes_full.columns.get_loc("0")
         stop_pos=len(self.data_list_with_step_sizes_full.columns) - start_pos - 1
@@ -510,51 +511,55 @@ class trajectory_analysis:
             group_data = self.data_list_with_step_sizes_full[self.data_list_with_step_sizes_full['group_readable'] == group]
 
             for tlag in tlags_:
-                fig = plt.figure()
-                ax = fig.add_subplot(1, 1, 1)
                 cur_tlag_data = group_data[group_data['tlag'] == tlag]
-
-                fig2 = plt.figure()
-                ax2 = fig2.add_subplot(1, 1, 1)
                 obs_dist = np.asarray(cur_tlag_data.loc[:, "0":str(stop_pos)]).flatten()
                 obs_dist = obs_dist[np.logical_not(np.isnan(obs_dist))]
-                plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
-
-                if(plot_type == 'gkde'):
-                    gkde = stats.gaussian_kde(obs_dist)
-                    plotting_kdepdf = gkde.evaluate(plotting_ind)
-                    ax2.plot(plotting_ind, plotting_kdepdf)
-                else:
-                    ax2.hist(obs_dist, bins=plotting_ind, histtype="step", density=True)
-                ax2.set_xlabel("microns")
-                ax2.set_ylabel("frequency")
-
-                fig2.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_' + str(group) + '_steps_'+plot_type+'.pdf')
-                fig2.clf()
-
-                for id in cur_tlag_data['id'].unique():
-                    cur_kde_data = cur_tlag_data[cur_tlag_data['id'] == id]
-                    obs_dist=np.asarray(cur_kde_data.loc[:,"0":str(stop_pos)].iloc[0].dropna())
+                if(len(obs_dist)>min_pts):
                     plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+
+                    fig = plt.figure()
+                    ax = fig.add_subplot(1, 1, 1)
+
+                    fig2 = plt.figure()
+                    ax2 = fig2.add_subplot(1, 1, 1)
 
                     if(plot_type == 'gkde'):
                         gkde = stats.gaussian_kde(obs_dist)
-                        plotting_kdepdf=gkde.evaluate(plotting_ind)
-                        ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_kde_data['file name'].iloc[0]))
+                        plotting_kdepdf = gkde.evaluate(plotting_ind)
+                        ax2.plot(plotting_ind, plotting_kdepdf)
                     else:
-                        ax.hist(obs_dist, bins=plotting_ind, histtype="step", density=True,
-                                label=str(cur_kde_data['file name'].iloc[0]), alpha=0.6)
+                        ax2.hist(obs_dist, bins=plotting_ind, histtype="step", density=True)
+                    ax2.set_xlabel("microns")
+                    ax2.set_ylabel("frequency")
+
+                    fig2.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_' + str(group) + '_steps_'+plot_type+'.pdf')
+                    fig2.clf()
+                    plt.close(fig2)
+
+                    for id in cur_tlag_data['id'].unique():
+                        cur_kde_data = cur_tlag_data[cur_tlag_data['id'] == id]
+                        obs_dist=np.asarray(cur_kde_data.loc[:,"0":str(stop_pos)].iloc[0].dropna())
+                        if(len(obs_dist)>min_pts):
+                            plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+
+                            if(plot_type == 'gkde'):
+                                gkde = stats.gaussian_kde(obs_dist)
+                                plotting_kdepdf=gkde.evaluate(plotting_ind)
+                                ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_kde_data[self._file_col_name].iloc[0])+'-'+str(cur_kde_data[self._roi_col_name].iloc[0]))
+                            else:
+                                ax.hist(obs_dist, bins=plotting_ind, histtype="step", density=True,
+                                        label=str(cur_kde_data[self._file_col_name].iloc[0])+'-'+str(cur_kde_data[self._roi_col_name].iloc[0]), alpha=0.6)
 
 
-                ax.set_xlabel("microns")
-                ax.set_ylabel("frequency")
-                ax.legend()
-                fig.savefig(self.results_dir + '/all_tlag'+str(tlag)+'_'+str(group)+'_steps_'+plot_type+'.pdf')
-                fig.clf()
+                    ax.set_xlabel("microns")
+                    ax.set_ylabel("frequency")
+                    if(make_legend):
+                        ax.legend()
+                    fig.savefig(self.results_dir + '/all_tlag'+str(tlag)+'_'+str(group)+'_steps_'+plot_type+'.pdf')
+                    fig.clf()
+                    plt.close(fig)
 
-                plt.close('all')
-
-    def plot_distribution_angles(self, tlags=[1, 2, 3], plot_type='gkde', bin_size=1):
+    def plot_distribution_angles(self, tlags=[1, 2, 3], plot_type='gkde', bin_size=1, min_pts=20, make_legend=False):
         self.data_list_with_angles = pd.read_csv(self.results_dir + "/all_data_angles.txt", index_col=0,
                                                  sep='\t', low_memory=False)
         start_pos = self.data_list_with_angles.columns.get_loc("0")
@@ -569,51 +574,54 @@ class trajectory_analysis:
             group_data = self.data_list_with_angles[self.data_list_with_angles['group_readable'] == group]
 
             for tlag in tlags_:
-                fig = plt.figure()
-                ax = fig.add_subplot(1, 1, 1)
                 cur_tlag_data = group_data[group_data['tlag'] == tlag]
-
-                fig2 = plt.figure()
-                ax2 = fig2.add_subplot(1, 1, 1)
                 obs_dist = np.asarray(cur_tlag_data.loc[:, "0":str(stop_pos)]).flatten()
                 obs_dist = obs_dist[np.logical_not(np.isnan(obs_dist))]
-                plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
-
-                if (plot_type == 'gkde'):
-                    gkde = stats.gaussian_kde(obs_dist)
-                    plotting_kdepdf = gkde.evaluate(plotting_ind)
-                    ax2.plot(plotting_ind, plotting_kdepdf)
-                else:
-                    ax2.hist(obs_dist, bins=plotting_ind, histtype="bar", density=True)
-
-                ax2.set_xlabel("angle (degrees)")
-                ax2.set_ylabel("frequency")
-
-                fig2.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_' + str(
-                    group) + '_angles_' + plot_type + '.pdf')
-                fig2.clf()
-
-                for id in cur_tlag_data['id'].unique():
-                    cur_kde_data = cur_tlag_data[cur_tlag_data['id'] == id]
-                    obs_dist = np.asarray(cur_kde_data.loc[:, "0":str(stop_pos)].iloc[0].dropna())
+                if(len(obs_dist) > min_pts):
                     plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+
+                    fig = plt.figure()
+                    ax = fig.add_subplot(1, 1, 1)
+
+                    fig2 = plt.figure()
+                    ax2 = fig2.add_subplot(1, 1, 1)
 
                     if (plot_type == 'gkde'):
                         gkde = stats.gaussian_kde(obs_dist)
                         plotting_kdepdf = gkde.evaluate(plotting_ind)
-                        ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_kde_data['file name'].iloc[0]))
+                        ax2.plot(plotting_ind, plotting_kdepdf)
                     else:
-                        ax.hist(obs_dist, bins=plotting_ind, histtype="bar", density=True,
-                                label=str(cur_kde_data['file name'].iloc[0]), alpha=0.6)
+                        ax2.hist(obs_dist, bins=plotting_ind, histtype="bar", density=True)
 
-                ax.set_xlabel("angles (degrees)")
-                ax.set_ylabel("frequency")
-                ax.legend()
-                fig.savefig(
-                    self.results_dir + '/all_tlag' + str(tlag) + '_' + str(group) + '_angles_' + plot_type + '.pdf')
-                fig.clf()
+                    ax2.set_xlabel("angle (degrees)")
+                    ax2.set_ylabel("frequency")
 
-                plt.close('all')
+                    fig2.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_' + str(
+                        group) + '_angles_' + plot_type + '.pdf')
+                    fig2.clf()
+                    plt.close(fig2)
+
+                    for id in cur_tlag_data['id'].unique():
+                        cur_kde_data = cur_tlag_data[cur_tlag_data['id'] == id]
+                        obs_dist = np.asarray(cur_kde_data.loc[:, "0":str(stop_pos)].iloc[0].dropna())
+                        if(len(obs_dist)>min_pts):
+                            plotting_ind = np.arange(0, obs_dist.max() + bin_size, bin_size)
+
+                            if (plot_type == 'gkde'):
+                                gkde = stats.gaussian_kde(obs_dist)
+                                plotting_kdepdf = gkde.evaluate(plotting_ind)
+                                ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_kde_data[self._file_col_name].iloc[0])+'-'+str(cur_kde_data[self._roi_col_name].iloc[0]))
+                            else:
+                                ax.hist(obs_dist, bins=plotting_ind, histtype="bar", density=True,
+                                        label=str(cur_kde_data[self._file_col_name].iloc[0])+'-'+str(cur_kde_data[self._roi_col_name].iloc[0]), alpha=0.6)
+
+                    ax.set_xlabel("angles (degrees)")
+                    ax.set_ylabel("frequency")
+                    if(make_legend):
+                        ax.legend()
+                    fig.savefig(self.results_dir + '/all_tlag' + str(tlag) + '_' + str(group) + '_angles_' + plot_type + '.pdf')
+                    fig.clf()
+                    plt.close(fig)
 
     def make_by_cell_plot(self, label, label_order):
         #group is on the x-axis
@@ -815,12 +823,13 @@ class trajectory_analysis:
                     fig2.savefig(self.results_dir + '/distribution_combined_step_size_' + str(tlag) + '_'+label+'.pdf')
                     plt.close(fig2)
 
-
                 ax.boxplot(to_plot, labels=labels,showfliers=False)
 
                 ax.set(xlabel=xlabel)
                 if (ylabel != ''):
                     ax.set(ylabel=ylabel)
+                else:
+                    ax.set(ylabel=f"step sizes, tlag={tlag} (microns)")
                 plt.xticks(rotation='vertical')
                 plt.tight_layout()
                 fig.savefig(self.results_dir + '/summary_combined_step_size_' + str(tlag) + '_nf.pdf')
@@ -843,6 +852,8 @@ class trajectory_analysis:
                 ax.set(xlabel=xlabel)
                 if (ylabel != ''):
                     ax.set(ylabel=ylabel)
+                else:
+                    ax.set(ylabel=f"med(step sizes), tlag={tlag} (microns)")
                 plt.xticks(rotation='vertical')
                 plt.tight_layout()
                 fig.savefig(self.results_dir + '/summary_' + y_col + '.pdf')
@@ -878,15 +889,17 @@ class trajectory_analysis:
         ax = fig.add_subplot(1, 1, 1)
 
         if (clrs != []):
-            sns.boxplot(x="group_readable", y='D', data=self.data_list_with_results_full, order=labels, showfliers=0, #fliersize=0,
+            sns.pointplot(x="group_readable", y='D', data=self.data_list_with_results_full, order=labels, estimator=np.median(), #showfliers=0, #fliersize=0,
                         ax=ax, palette=clrs)
         else:
-            sns.boxplot(x="group_readable", y='D', data=self.data_list_with_results_full, order=labels, showfliers=False, #fliersize=0,
+            sns.pointplot(x="group_readable", y='D', data=self.data_list_with_results_full, order=labels, estimator=np.median, #showfliers=False, #fliersize=0,
                         ax=ax)
 
         ax.set(xlabel=xlabel)
         if (ylabel != ''):
             ax.set(ylabel=ylabel)
+        else:
+            ax.set(ylabel="Deff")
 
         plt.xticks(rotation='vertical')
         plt.tight_layout()
@@ -935,9 +948,60 @@ class trajectory_analysis:
             ax.set(xlabel=xlabel)
             if (ylabel != ''):
                 ax.set(ylabel = ylabel)
+            else:
+                ax.set(ylabel = "med(Deff)")
             plt.xticks(rotation='vertical')
             plt.tight_layout()
             fig.savefig(self.results_dir + '/summary_'+y_col+'.pdf')
+            fig.clf()
+
+    def make_plot_roi_area(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[]):
+        #make plot of ROI Area vs. med(Deff)
+        self.data_list_with_results = pd.read_csv(self.results_dir + '/' + "summary.txt", sep='\t')
+
+        self.data_list_with_results['group'] = self.data_list_with_results['group'].astype('str')
+        self.data_list_with_results['group_readable'] = self.data_list_with_results['group_readable'].astype('str')
+
+        if (label_order):
+            label_order_ = []
+            for l in label_order:
+                if (l in list(self.data_list_with_results['group_readable'])):
+                    label_order_.append(l)
+            labels = label_order_
+        else:
+            labels = np.unique(self.data_list_with_results['group_readable'])
+            labels.sort()
+
+        if (plot_labels):
+            self.data_list_with_results['group_readable'] = ''
+            for i, plot_label in enumerate(plot_labels):
+                self.data_list_with_results['group_readable'] = np.where(
+                    self.data_list_with_results['group'] == str(labels[i]),
+                    plot_label, self.data_list_with_results['group_readable'])
+            labels = plot_labels
+
+        for y_col in ['D_median','D_median_filtered']:
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
+
+            if (clrs != []):
+                sns.scatterplot(x="area", y=y_col, data=self.data_list_with_results, hue='group_readable',
+                                ax=ax, palette=clrs)
+            else:
+                sns.scatterplot(x="area", y=y_col, data=self.data_list_with_results, hue='group_readable', ax=ax)
+
+            if (xlabel != ''):
+                ax.set(xlabel=xlabel)
+            else:
+                ax.set(xlabel="roi area (microns)")
+
+            if (ylabel != ''):
+                ax.set(ylabel=ylabel)
+            else:
+                ax.set(ylabel="Deff")
+
+            plt.tight_layout()
+            fig.savefig(self.results_dir + f"/roi-area_vs_{y_col}.pdf")
             fig.clf()
 
     def read_track_data_file(self, file_name):
@@ -992,29 +1056,22 @@ class trajectory_analysis:
                     self.log.write(f"Cannot load tif image file for ROI file: ({roi_file}).\n")
                     self.log.flush()
                     err = True
+            roi_area=0
             if (not err):
                 # limit the tracks to the ROI - returns track ids that are fully within mask
                 valid_id_list = limit_tracks_given_mask(mask, df.to_numpy())
                 df = df[df['Trajectory'].isin(valid_id_list)]
+                roi_area=np.sum(mask.flatten())
         else:
             # no action here - error will already have been printed by class init function #
             pass
-        return df
+        return (df,roi_area)
 
-    def set_rows_to_none(self, i, l, g, gr):
-        self.data_list_with_results.at[i, 'D_median'] = np.nan
-        self.data_list_with_results.at[i, 'D_mean'] = np.nan
-        self.data_list_with_results.at[i, 'D_median_filtered'] = np.nan
-        self.data_list_with_results.at[i, 'D_mean_filtered'] = np.nan
-        self.data_list_with_results.at[i, 'num_tracks'] = l
-        self.data_list_with_results.at[i, 'num_tracks_D'] = 0
-        self.data_list_with_results.at[i, 'group'] = g
-        self.data_list_with_results.at[i, 'group_readable'] = gr
-
-    def set_rows_to_none_ss(self, i, max, g, gr):
+    def set_rows_to_none_ss(self, i, a, max, g, gr):
         for tlag_i in range(1, max, 1):
             self.data_list_with_step_sizes.at[i, 'step_size_' + str(tlag_i) + '_median'] = np.nan
             self.data_list_with_step_sizes.at[i, 'step_size_' + str(tlag_i) + '_mean'] = np.nan
+        self.data_list_with_step_sizes.at[i, 'area'] = a
         self.data_list_with_step_sizes.at[i, 'group'] = g
         self.data_list_with_step_sizes.at[i, 'group_readable'] = gr
 
@@ -1071,6 +1128,7 @@ class trajectory_analysis:
         for tlag_i in range(1,self.max_tlag_step_size+1,1):
             self.data_list_with_step_sizes['step_size_'+str(tlag_i)+'_median'] = 0.0
             self.data_list_with_step_sizes['step_size_'+str(tlag_i)+'_mean'] = 0.0
+        self.data_list_with_step_sizes['area'] = ''
         self.data_list_with_step_sizes['group'] = ''
         self.data_list_with_step_sizes['group_readable'] = ''
 
@@ -1112,22 +1170,22 @@ class trajectory_analysis:
                 cur_dir = data[self._dir_col_name]
                 cur_file = data[self._file_col_name]
 
-                print(cur_file)
-                print(data[self._roi_col_name])
+                print(cur_file, data[self._roi_col_name])
 
+                roi_area=''
                 track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
                 if (len(track_data_df) == 0):
                     self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
                     self.log.flush()
-                    self.set_rows_to_none_ss(index, self.max_tlag_step_size + 1, file_str, group_readable)
+                    self.set_rows_to_none_ss(index, '', self.max_tlag_step_size + 1, file_str, group_readable)
                     continue
 
                 if (self.limit_to_ROIs):
-                    track_data_df = self.filter_ROI(index, data[self._roi_col_name], track_data_df)
+                    (track_data_df, roi_area) = self.filter_ROI(index, data[self._roi_col_name], track_data_df)
                     if (len(track_data_df) == 0):
                         self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
                         self.log.flush()
-                        self.set_rows_to_none_ss(index, self.max_tlag_step_size + 1, file_str, group_readable)
+                        self.set_rows_to_none_ss(index, '', self.max_tlag_step_size + 1, file_str, group_readable)
                         continue
 
                 #check if we need to set the calibration for this file
@@ -1152,10 +1210,14 @@ class trajectory_analysis:
                             if (len(track_data_df) == 0):
                                 self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
                                 self.log.flush()
-                                self.set_rows_to_none_ss(index, self.max_tlag_step_size + 1, file_str, group_readable)
+                                self.set_rows_to_none_ss(index, '', self.max_tlag_step_size + 1, file_str, group_readable)
                                 continue
 
                 track_data = track_data_df.to_numpy()
+
+                # convert ROI area to microns, now that we have the correct scaling information
+                if (self.limit_to_ROIs and roi_area != ''):
+                    roi_area = roi_area * msd_diff_obj.micron_per_px
 
                 # for this movie, calcuate step sizes and angles for each track
                 msd_diff_obj.set_track_data(track_data)
@@ -1171,7 +1233,7 @@ class trajectory_analysis:
                                    "' contains 0 tracks of minimum length for calculating step sizes/angles (" +
                                    str(msd_diff_obj.min_track_len_step_size) + ")\n")
                     self.log.flush()
-                    self.set_rows_to_none_ss(index, self.max_tlag_step_size+1, file_str, group_readable)
+                    self.set_rows_to_none_ss(index, roi_area, self.max_tlag_step_size+1, file_str, group_readable)
                     continue
 
                 #fill step size data
@@ -1189,6 +1251,7 @@ class trajectory_analysis:
                     self.data_list_with_step_sizes.at[index,'step_size_' + str(tlag_i) + '_median'] = ss_median
                     self.data_list_with_step_sizes.at[index,'step_size_' + str(tlag_i) + '_mean'] = ss_mean
 
+                self.data_list_with_step_sizes.at[index, 'area'] = roi_area
                 self.data_list_with_step_sizes.at[index, 'group'] = file_str
                 self.data_list_with_step_sizes.at[index, 'group_readable'] = group_readable
 
@@ -1222,6 +1285,17 @@ class trajectory_analysis:
 
         self.data_list_with_step_sizes_full.to_csv(self.results_dir + '/' + "all_data_step_sizes.txt", sep='\t')
         #self.data_list_with_angles.to_csv(self.results_dir + '/' + "all_data_angles.txt", sep='\t') # TODO test and uncomment
+
+    def set_rows_to_none(self, i, a, l, g, gr):
+        self.data_list_with_results.at[i, 'D_median'] = np.nan
+        self.data_list_with_results.at[i, 'D_mean'] = np.nan
+        self.data_list_with_results.at[i, 'D_median_filtered'] = np.nan
+        self.data_list_with_results.at[i, 'D_mean_filtered'] = np.nan
+        self.data_list_with_results.at[i, 'num_tracks'] = l
+        self.data_list_with_results.at[i, 'num_tracks_D'] = 0
+        self.data_list_with_results.at[i, 'area'] = a
+        self.data_list_with_results.at[i, 'group'] = g
+        self.data_list_with_results.at[i, 'group_readable'] = gr
 
     def calculate_msd_and_diffusion(self, save_per_file_data=False):
         # calculates the msd and diffusion data for ALL groups
@@ -1267,6 +1341,7 @@ class trajectory_analysis:
         self.data_list_with_results['D_mean_filtered'] = 0.0
         self.data_list_with_results['num_tracks'] = 0
         self.data_list_with_results['num_tracks_D'] = 0
+        self.data_list_with_results['area'] = ''
         self.data_list_with_results['group']=''
         self.data_list_with_results['group_readable'] = ''
 
@@ -1322,7 +1397,6 @@ class trajectory_analysis:
                         cur_ax_roi.axis("off")
                         cur_ax_roi.imshow(bk_img, cmap="gray")
 
-                #for index,data in group_df.iterrows():
                 count=0
                 roi_cmap = cm.get_cmap('jet', len(files_group))
                 roi_colors = roi_cmap(range(1, len(files_group)+1))
@@ -1330,22 +1404,23 @@ class trajectory_analysis:
                     cur_dir=data[self._dir_col_name]
                     cur_file=data[self._file_col_name]
 
-                    print(cur_file)
-                    print(data[self._roi_col_name])
+                    print(cur_file, data[self._roi_col_name])
 
+                    roi_area=''
                     track_data_df = self.read_track_data_file(cur_dir + '/' + cur_file)
                     if (len(track_data_df) == 0):
                         self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks.\n")
                         self.log.flush()
-                        self.set_rows_to_none(index, 0, file_str, group_readable)
+                        self.set_rows_to_none(index, '', 0, file_str, group_readable)
                         continue
 
                     if (self.limit_to_ROIs):
-                        track_data_df = self.filter_ROI(index, data[self._roi_col_name], track_data_df)
+                        (track_data_df,roi_area) = self.filter_ROI(index, data[self._roi_col_name], track_data_df)
+
                         if (len(track_data_df) == 0):
                             self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after ROI filtering.\n")
                             self.log.flush()
-                            self.set_rows_to_none(index, 0, file_str, group_readable)
+                            self.set_rows_to_none(index, '', 0, file_str, group_readable)
                             continue
 
                     # check if we need to set the calibration for this file
@@ -1370,23 +1445,19 @@ class trajectory_analysis:
                                 if (len(track_data_df) == 0):
                                     self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
                                     self.log.flush()
-                                    self.set_rows_to_none(index, 0, file_str, group_readable)
+                                    self.set_rows_to_none(index, '', 0, file_str, group_readable)
                                     continue
 
                     track_data=track_data_df.to_numpy()
+
+                    # convert ROI area to microns, now that we have the correct scaling information
+                    if (self.limit_to_ROIs and roi_area != ''):
+                        roi_area = roi_area * msd_diff_obj.micron_per_px
 
                     #for this movie, calculate msd and diffusion for each track
                     msd_diff_obj.set_track_data(track_data)
                     msd_diff_obj.msd_all_tracks()
                     msd_diff_obj.fit_msd()
-
-                    if(len(msd_diff_obj.D_linfits)==0):
-                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file +
-                                       "' contains 0 tracks of minimum length for calculating Deff (" +
-                                       str(msd_diff_obj.min_track_len_linfit) + ")\n")
-                        self.log.flush()
-                        self.set_rows_to_none(index,len(msd_diff_obj.track_lengths),file_str,group_readable)
-                        continue
 
                     # rainbow tracks
                     if(self.make_rainbow_tracks):
@@ -1400,6 +1471,15 @@ class trajectory_analysis:
                         if (cur_ax_roi != None):
                             msd_diff_obj.save_tracks_to_img_clr(cur_ax_roi, lw=0.1, color=roi_colors[count])
                             count += 1
+
+                    if (len(msd_diff_obj.D_linfits) == 0):
+                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file +
+                                       "' contains 0 tracks of minimum length for calculating Deff (" +
+                                       str(msd_diff_obj.min_track_len_linfit) + ")\n")
+                        self.log.flush()
+                        self.set_rows_to_none(index, roi_area, len(msd_diff_obj.track_lengths), file_str,
+                                              group_readable)
+                        continue
 
                     D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
                     D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
@@ -1436,6 +1516,7 @@ class trajectory_analysis:
                     self.data_list_with_results.at[index, 'D_mean_filtered'] = D_mean_filt
                     self.data_list_with_results.at[index, 'num_tracks'] = len(msd_diff_obj.track_lengths)
                     self.data_list_with_results.at[index, 'num_tracks_D'] = len(msd_diff_obj.D_linfits)
+                    self.data_list_with_results.at[index, 'area'] = roi_area
                     self.data_list_with_results.at[index, 'group'] = file_str
                     self.data_list_with_results.at[index, 'group_readable']=group_readable
 
