@@ -906,7 +906,7 @@ class trajectory_analysis:
         fig.savefig(self.results_dir + '/summary_combined_D.pdf')
         fig.clf()
 
-    def make_plot(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10):
+    def make_plot(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10, dot_size=4, points_plot="swarm"):
         # label_order should match the group labels (i.e. group/group_readable)
         # it is just imposing an order for plotting
 
@@ -941,12 +941,19 @@ class trajectory_analysis:
             fig = plt.figure()
             ax = fig.add_subplot(1, 1, 1)
             if(clrs != []):
-                sns.boxplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, fliersize=0, ax=ax, palette=clrs)
+                sns.boxplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, fliersize=0, ax=ax,
+                            palette=clrs)
             else:
                 sns.boxplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, fliersize=0, ax=ax)
 
-            sns.swarmplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, color=".25", size=4, ax=ax)
-            #ax.set(xlabel="X Label", ylabel = "Y Label")
+            if(points_plot == "swarm"):
+                sns.swarmplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, color=".25", size=dot_size, ax=ax)
+            elif(points_plot == "strip"):
+                sns.stripplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, color=".25", size=dot_size,
+                              jitter=True, ax=ax)
+            else:
+                pass # no plotting of individual points
+
             ax.set(xlabel=xlabel)
             if (ylabel != ''):
                 ax.set(ylabel = ylabel)
@@ -957,7 +964,7 @@ class trajectory_analysis:
             fig.savefig(self.results_dir + '/summary_'+y_col+'.pdf')
             fig.clf()
 
-    def make_plot_roi_area(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10):
+    def make_plot_roi_area(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10, dot_size=4):
         #make plot of ROI Area vs. med(Deff)
         self.data_list_with_results = pd.read_csv(self.results_dir + '/' + "summary.txt", sep='\t')
 
@@ -982,16 +989,18 @@ class trajectory_analysis:
                     plot_label, self.data_list_with_results['group_readable'])
             labels = plot_labels
 
-        data_to_plot = self.data_list_with_results[self.data_list_with_results['num_tracks_D'] > min_pts]
+        data_to_plot = self.data_list_with_results[self.data_list_with_results['num_tracks_D'] > min_pts].copy()
+        data_to_plot['group']=data_to_plot['group_readable']
         for y_col in ['D_median','D_median_filtered']:
             fig = plt.figure()
             ax = fig.add_subplot(1, 1, 1)
 
             if (clrs != []):
-                sns.scatterplot(x="area", y=y_col, data=data_to_plot, hue='group_readable',
-                                ax=ax, palette=clrs)
+                sns.scatterplot(x="area", y=y_col, data=data_to_plot, hue='group',
+                                ax=ax, palette=clrs, size=dot_size, hue_order=labels)
             else:
-                sns.scatterplot(x="area", y=y_col, data=data_to_plot, hue='group_readable', ax=ax)
+                sns.scatterplot(x="area", y=y_col, data=data_to_plot, hue='group', ax=ax, s=dot_size,
+                                hue_order=labels)
 
             if (xlabel != ''):
                 ax.set(xlabel=xlabel)
