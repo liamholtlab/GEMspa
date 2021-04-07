@@ -36,6 +36,7 @@ class msd_diffusion:
         self.perc_tlag_linfit=25
         self.use_perc_tlag_linfit=False
         self.initial_guess_linfit=0.2
+        self.initial_guess_aexp=1
 
         self.tracks_num_cols=4
         self.tracks_id_col=0
@@ -69,6 +70,7 @@ class msd_diffusion:
         self.D_linfits = np.asarray([])
         self.fill_track_lengths()
         self.fill_track_sizes()
+        self.ensemble_average = np.asarray([])
 
     def msd2d(self, x, y):
 
@@ -185,6 +187,180 @@ class msd_diffusion:
             self.msd_tracks[i:i+n_MSD,self.msd_len_col] = n_MSD-1
             i += n_MSD
 
+    def calculate_ensemble_average(self):
+        # average the MSD at each t-lag, weighted by number of points in the MSD average
+        # did not use weighted mean, instead cut off tracks < 11 in length, and
+        # also only continue with larger tlags while the number of points to average >= 5
+        valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_linfit - 1))]
+        min_MSD_values_for_mean=10
+        max_tlag=int(np.max(valid_tracks[:,self.msd_len_col]))
+        ensemble_average=[]
+        for tlag in range(1,max_tlag+1,1):
+            # gather all data for current tlag
+            tlag_time=tlag*self.time_step
+            cur_tlag_MSDs=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
+
+            #cur_tlag_weights=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_len_col]
+            #cur_tlag_weights=cur_tlag_weights-tlag # not using the weights for now...
+            if(len(cur_tlag_MSDs)>=min_MSD_values_for_mean):
+                ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs), np.std(cur_tlag_MSDs)])
+            else:
+                break
+        self.ensemble_average=np.asarray(ensemble_average)
+
+    # def calculate_ensemble_average(self):
+    #     # average the MSD at each t-lag, weighted by number of points in the MSD average
+    #     # did not use weighted mean, instead cut off tracks < 11 in length, and
+    #     # also only continue with larger tlags while the number of points to average >= 5
+    #     min_MSD_values_for_mean = 2
+    #     max_tlag=int(np.max(self.msd_tracks[:,self.msd_len_col]))
+    #     ensemble_average=[]
+    #     for tlag in range(1,max_tlag+1,1):
+    #         # gather all data for current tlag
+    #         tlag_time=tlag*self.time_step
+    #         cur_tlag_MSDs=self.msd_tracks[self.msd_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
+    #
+    #         cur_tlag_weights=self.msd_tracks[self.msd_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_len_col]
+    #         cur_tlag_weights=cur_tlag_weights-(tlag-1)
+    #         if(np.min(cur_tlag_weights) <= 0):
+    #             print("ERROR")
+    #         if (len(cur_tlag_MSDs) >= min_MSD_values_for_mean):
+    #             wm=np.average(cur_tlag_MSDs, weights=cur_tlag_weights)
+    #             variance = np.average((cur_tlag_MSDs - wm) ** 2, weights=cur_tlag_weights)
+    #             ensemble_average.append([tlag_time, wm, np.sqrt(variance)])
+    #         else:
+    #             break
+    #
+    #     self.ensemble_average=np.asarray(ensemble_average)
+
+    # def fit_msd_ensemble_alpha(self):
+    #     # uses ensemble average to fit for anomolous exponent
+    #     if (len(self.ensemble_average) == 0):
+    #         return ()
+    #
+    #     def powerlaw_fn(x, a, b):
+    #         return 4 * a * (x ** b)
+    #
+    #     powerlaw_fn_v = np.vectorize(powerlaw_fn)
+    #
+    #     ##### Correct way
+    #     popt, pcov = curve_fit(powerlaw_fn, self.ensemble_average[:, 0], self.ensemble_average[:, 1],
+    #                            p0=[self.initial_guess_linfit, self.initial_guess_aexp])
+    #     residuals = self.ensemble_average[:, 1] - powerlaw_fn_v(self.ensemble_average[:, 0], popt[0], popt[1])
+    #     ss_res = np.sum(residuals ** 2)
+    #     rmse = np.mean(residuals ** 2) ** 0.5
+    #     ss_tot = np.sum((self.ensemble_average[:, 1] - np.mean(self.ensemble_average[:, 1])) ** 2)
+    #
+    #     r_squared = 1 - (ss_res / ss_tot)
+    #
+    #     self.anomolous_fit_rsq = r_squared
+    #     self.anomolous_fit_rmse = rmse
+    #     self.anomolous_fit_K = popt[0]
+    #     self.anomolous_fit_alpha = popt[1]
+    #     self.anomolous_fit_errs = np.sqrt(np.diag(pcov))  # one standard deviation errors on the parameters
+
+    def fit_msd_ensemble_alpha(self):
+        #MSD(t) = L * t ^ a
+        #L = 4K
+        #log(MSD) = a * log(t) + log(L)
+        #FIT to straight line
+
+        # uses ensemble average to fit for anomolous exponent
+        if (len(self.ensemble_average) == 0):
+            return ()
+
+        def linear_fn(x, m, b):
+            return m * x + b
+
+        linear_fn_v = np.vectorize(linear_fn)
+
+        popt, pcov = curve_fit(linear_fn, np.log(self.ensemble_average[:, 0]), np.log(self.ensemble_average[:, 1]),
+                               p0=[self.initial_guess_aexp, np.log(4*self.initial_guess_linfit)])
+
+        residuals = self.ensemble_average[:, 1] - linear_fn_v(self.ensemble_average[:, 0], popt[0], popt[1])
+        ss_res = np.sum(residuals ** 2)
+        rmse = np.mean(residuals ** 2) ** 0.5
+        ss_tot = np.sum((self.ensemble_average[:, 1] - np.mean(self.ensemble_average[:, 1])) ** 2)
+
+        r_squared = 1 - (ss_res / ss_tot)
+
+        self.anomolous_fit_rsq = r_squared
+        self.anomolous_fit_rmse = rmse
+        self.anomolous_fit_K = np.exp(popt[1])/4
+        self.anomolous_fit_alpha = popt[0]
+        self.anomolous_fit_errs = np.sqrt(np.diag(pcov))  # one standard deviation errors on the parameters
+
+    def fit_msd_ensemble(self):
+        # uses ensemble average to fit for Deff
+        if (len(self.ensemble_average) == 0):
+            return ()
+
+        def linear_fn(x, a):
+            return 4 * a * x
+
+        linear_fn_v = np.vectorize(linear_fn)
+
+        popt, pcov = curve_fit(linear_fn, self.ensemble_average[:,0], self.ensemble_average[:,1],
+                               p0=[self.initial_guess_linfit,])
+        residuals = self.ensemble_average[:,1] - linear_fn_v(self.ensemble_average[:,0], popt[0])
+        ss_res = np.sum(residuals ** 2)
+        rmse = np.mean(residuals ** 2) ** 0.5
+        ss_tot = np.sum((self.ensemble_average[:,1] - np.mean(self.ensemble_average[:,1]))**2)
+
+        r_squared = 1 - (ss_res / ss_tot)
+
+        self.ensemble_fit_rsq = r_squared
+        self.ensemble_fit_rmse = rmse
+        self.ensemble_fit_D=popt[0]
+        self.ensemble_fit_err=np.sqrt(np.diag(pcov)) #one standard deviation error on the parameter
+
+    def plot_msd_ensemble(self, file_name="msd_ensemble.pdf", fit_line=False):
+
+        def linear_fn(x, a):
+            return 4 * a * x
+        linear_fn_v = np.vectorize(linear_fn)
+
+        def linear_fn2(x, m, b):
+            return m * x + b
+
+        linear_fn_v2 = np.vectorize(linear_fn2)
+
+        #linear scale
+        plt.plot(self.ensemble_average[:, 0], self.ensemble_average[:, 1], color='black')
+        plt.xlabel('t-lag (s)')
+        plt.ylabel('MSD (microns^2)')
+        plt.xscale('linear')
+        plt.yscale('linear')
+        if(fit_line):
+            y_vals_from_fit = linear_fn_v(self.ensemble_average[:, 0], msd_diff.ensemble_fit_D)
+            plt.plot(self.ensemble_average[:, 0], y_vals_from_fit, color='red')
+
+        lower_bound = self.ensemble_average[:, 1] - self.ensemble_average[:, 2]
+        lower_bound[lower_bound < 0] = 0
+        plt.fill_between(self.ensemble_average[:, 0],
+                         lower_bound,
+                         self.ensemble_average[:, 1] + self.ensemble_average[:, 2], color='gray', alpha=0.8)
+        plt.savefig(self.save_dir + '/' + file_name)
+        plt.clf()
+
+        # loglog plot
+        plt.plot(np.log(self.ensemble_average[:, 0]), np.log(self.ensemble_average[:, 1]), color='black')
+
+        if(fit_line): # np.exp(popt[1])/4
+            y_vals_from_fit = linear_fn_v2(np.log(self.ensemble_average[:, 0]), msd_diff.anomolous_fit_alpha, np.log(4*self.anomolous_fit_K))
+            plt.plot(np.log(self.ensemble_average[:, 0]), y_vals_from_fit, color='red')
+
+            #y_vals_from_fit = linear_fn_v2(np.log(self.ensemble_average[:, 0]), .90, np.log(4 * .40))
+            #plt.plot(np.log(self.ensemble_average[:, 0]), y_vals_from_fit, color='pink')
+
+
+        plt.xlabel('log[t-lag (s)]')
+        plt.ylabel('log[MSD (microns^2)]')
+
+        (file_root, ext) = os.path.splitext(file_name)
+        plt.savefig(self.save_dir + '/' + file_root + '-loglog' + ext)
+        plt.clf()
+
     def fit_msd(self, type="brownian"):
         # fit MSD curve to get Diffusion coefficient
         # filter for tracks > min-length
@@ -260,20 +436,34 @@ class msd_diffusion:
         df.to_csv(self.save_dir + '/' + file_name, sep='\t', index=False)
         return df
 
-    def plot_msd_curves(self,file_name="msd_all.pdf", max_tracks=50, ymax=-1, rsq_cutoff=0.85):
-        num_tracks_plotted = 0
-        for i in range(len(self.D_linfits)):
-            cur_track = self.msd_tracks[self.msd_tracks[:,self.msd_id_col]==self.D_linfits[i][self.D_lin_id_col]]
-            if(self.D_linfits[i,self.D_lin_rsq_col] > rsq_cutoff):
-                plt.plot(cur_track[:self.track_len_cutoff_linfit+1,self.msd_t_col], cur_track[:self.track_len_cutoff_linfit+1,self.msd_msd_col], '-', color="blue", linewidth=".5")
-                num_tracks_plotted += 1
-            if(num_tracks_plotted>max_tracks):
+    def plot_msd_curves(self,file_name="msd_all.pdf", max_tracks=50, ymax=-1, xmax=-1, min_track_len=0, fit_line=False):
+
+        def linear_fn(x, a):
+            return 4 * a * x
+
+        linear_fn_v = np.vectorize(linear_fn)
+
+        valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (min_track_len - 1))]
+        ids = np.unique(valid_tracks[:, self.msd_id_col])
+        x_range=[]
+        for i, id in enumerate(ids):
+            cur_track = valid_tracks[np.where(valid_tracks[:, self.msd_id_col] == id)]
+            plt.plot(cur_track[:,self.msd_t_col], cur_track[:,self.msd_msd_col], linewidth=".5")
+            if(len(cur_track[:,self.msd_t_col]) > len(x_range)):
+                x_range=cur_track[:,self.msd_t_col]
+
+            if (max_tracks != 0 and i+1 >= max_tracks):
                 break
 
-        plt.xlabel('t (s)')
+        if(fit_line):
+            y_vals_from_fit=linear_fn_v(x_range, np.median(self.D_linfits[:,self.D_lin_D_col]))
+            plt.plot(x_range, y_vals_from_fit, color='black')
+        plt.xlabel('t-lag (s)')
         plt.ylabel('MSD (microns^2)')
         if(ymax>0):
             plt.ylim(0,ymax)
+        if (xmax > 0):
+            plt.xlim(0, xmax)
         plt.savefig(self.save_dir + '/' + file_name)
         plt.clf()
 
@@ -612,7 +802,7 @@ test2=False
 #     msd_diff.save_D_histogram("Deff.pdf")
 #
 if(test2):
-    dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/tamas-20201218_HeLa_hPNE_nucPfV_NPM1_clones/tracks/"
+    dir_="/Volumes/Seagate Backup Plus Drive/holtlab/data_and_results/tamas-20201218_HeLa_hPNE_nucPfV_NPM1_clones/tracks/"
     file_name='Traj_02_WT_hPNE_nucPfV_010_01.csv'
 
     track_data_df = pd.read_csv(dir_ + '/' + file_name)
@@ -623,14 +813,37 @@ if(test2):
     msd_diff.micron_per_px=0.1527
     msd_diff.time_step=0.010
     msd_diff.set_track_data(track_data)
-    msd_diff.step_sizes_and_angles()
-    msd_diff.save_angle_hist(tlag=1)
-    msd_diff.save_angle_hist(tlag=2)
-    msd_diff.save_angle_hist(tlag=3)
-    msd_diff.fit_msd()
-
     msd_diff.save_dir = dir_ + '/results'
 
+    # msd_diff.step_sizes_and_angles()
+    # msd_diff.save_angle_hist(tlag=1)
+    # msd_diff.save_angle_hist(tlag=2)
+    # msd_diff.save_angle_hist(tlag=3)
+
+    msd_diff.msd_all_tracks()
+    msd_diff.calculate_ensemble_average()
+
+
+    msd_diff.fit_msd()
+    msd_diff.plot_msd_curves(min_track_len=11, ymax=1, xmax=0.3, max_tracks=0, fit_line=True)
+
+    msd_diff.fit_msd_ensemble()
+    print(msd_diff.ensemble_fit_rsq)
+    print(msd_diff.ensemble_fit_rmse)
+    print(msd_diff.ensemble_fit_D)
+    print(msd_diff.ensemble_fit_err)
+
+    print("")
+    msd_diff.fit_msd_ensemble_alpha()
+    print(msd_diff.anomolous_fit_rsq)
+    print(msd_diff.anomolous_fit_rmse)
+    print(msd_diff.anomolous_fit_K)
+    print(msd_diff.anomolous_fit_alpha)
+    print(msd_diff.anomolous_fit_errs)
+
+    msd_diff.plot_msd_ensemble(fit_line=True)
+
+    print("")
     msd_diff.save_msd_data()
     df = msd_diff.save_fit_data()
     print(np.median(df['D']))
