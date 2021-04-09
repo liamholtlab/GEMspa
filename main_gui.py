@@ -115,7 +115,7 @@ class RunDialog(wx.Dialog):
 class GEMSAnalyzerMainFrame(wx.Frame):
 
     def __init__(self):
-        super().__init__(None, -1, 'GEMSAnalyzer', size=(1200,800))
+        super().__init__(None, -1, 'GEMspa', size=(1200,800))
         self.statusbar =self.CreateStatusBar()
         self.statusbar.SetStatusText('Welcome!')
         self.create_menu()
@@ -538,8 +538,6 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     if(limit_with_rois):
                         traj_an.make_plot_roi_area()
 
-
-
                     self.statusbar.SetStatusText('Finished!')
                     print("Finished!")
 
@@ -561,7 +559,7 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         file_clear = file_menu.Append(wx.ID_ANY, "&Clear", "Clear conditions")
         file_menu.AppendSeparator()
 
-        file_exit=file_menu.Append(wx.ID_ANY, "E&xit", "Close GEMSAnalyzer")
+        file_exit=file_menu.Append(wx.ID_ANY, "E&xit", "Close GEMspa")
 
         self.Bind(event=wx.EVT_MENU, handler=self.on_open, source=file_open)
         self.Bind(event=wx.EVT_MENU, handler=self.on_save, source=file_save)
