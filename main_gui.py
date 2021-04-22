@@ -54,9 +54,9 @@ class RunDialog(wx.Dialog):
         start_y=200
         spacing=35
         params_list = ['Time between frames (s):', 'Scale (microns per px):', 'Min. track length (fit):',
-                       'Track length cutoff (fit):', 'Min track length (step size/angles):',
-                       'Max t-lag (step size/angles):', 'Time step resolution (uneven time steps) (s):',
-                       'Min D for plots:','Max D for plots:', 'Max D for rainbow tracks:',
+                       'Max t-lag (fit):', 'Min track length (step size/angles):',
+                       'Max t-lag (step size/angles):', 'Time step tolerance (uneven time steps) (s):',
+                       'Min D for filtered plots:','Max D for filtered plots:', 'Max D for rainbow tracks:',
                        'Max step size for rainbow tracks (microns):','Prefix for image file name:']
         default_values = [0.010,0.11,11,11,3,3,0.005,0,2,2,1,'DNA_']
         self.text_ctrl_run_params=[]

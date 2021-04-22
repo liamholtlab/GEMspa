@@ -157,7 +157,7 @@ class msd_diffusion:
                     # relative angle: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3856831/
                     vecs = np.column_stack((x_shifts, y_shifts))
                     theta=np.zeros(len(list(range(0, len(vecs)-tlag, tlag))))
-                    for theta_i,vec_i in enumerate(range(0, len(vecs)-tlag, tlag)): # check range with longer track STOPPED HERE
+                    for theta_i,vec_i in enumerate(range(0, len(vecs)-tlag, tlag)): # check range with longer track
                         if(np.linalg.norm(vecs[vec_i]) == 0 or np.linalg.norm(vecs[vec_i+tlag]) == 0):
                             print("norm of vec is 0: id=", id)
                         theta[theta_i] = np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag]))))

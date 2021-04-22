@@ -73,13 +73,13 @@ def make_mask_from_roi(rois, roi_name, img_shape):
             if (roi['type'] == 'polygon' or (roi['type'] == 'freehand' and 'x' in roi and 'y' in roi)):
                 col_coords = roi['x']
                 row_coords = roi['y']
-                rr, cc = draw.polygon(row_coords, col_coords)
+                rr, cc = draw.polygon(row_coords, col_coords, shape=img_shape)
                 final_img[rr, cc] = 1
             elif (roi['type'] == 'rectangle'):
-                rr, cc = draw.rectangle((roi['top'], roi['left']), extent=(roi['height'], roi['width']))
+                rr, cc = draw.rectangle((roi['top'], roi['left']), extent=(roi['height'], roi['width']), shape=img_shape)
                 final_img[rr, cc] = 1
             elif (roi['type'] == 'oval'):
-                rr, cc = draw.ellipse(roi['top'] + roi['height'] / 2, roi['left'] + roi['width'] / 2, roi['height'] / 2, roi['width'] / 2)
+                rr, cc = draw.ellipse(roi['top'] + roi['height'] / 2, roi['left'] + roi['width'] / 2, roi['height'] / 2, roi['width'] / 2, shape=img_shape)
                 final_img[rr, cc] = 1
             else:
                 poly_error=True
@@ -114,9 +114,16 @@ def read_movie_metadata_tif(file_name):
 def read_movie_metadata_nd2(file_name):
     with ND2Reader(file_name) as images:
         steps = images.timesteps[1:] - images.timesteps[:-1]
+
+        #plt.plot(range(1,len(steps)+1), steps)
+        #plt.clf()
+
+        # round steps to the nearest ms
         steps = np.round(steps, 0)
+
         #convert steps from ms to s
         steps=steps/1000
+
         microns_per_pixel=images.metadata['pixel_microns']
         return (microns_per_pixel,np.min(steps),steps)
 
@@ -515,6 +522,10 @@ class trajectory_analysis:
 
     def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_type='gkde', bin_size=0.05, min_pts=20, make_legend=False):
         self.data_list_with_step_sizes_full = pd.read_csv(self.results_dir + "/all_data_step_sizes.txt", index_col=0, sep='\t', low_memory=False)
+
+        self.data_list_with_step_sizes_full = self.data_list_with_step_sizes_full.replace('', np.NaN)
+        self.data_list_with_step_sizes_full.dropna(axis=0, subset=['group'], inplace=True)
+
         start_pos = self.data_list_with_step_sizes_full.columns.get_loc("0")
         stop_pos=len(self.data_list_with_step_sizes_full.columns) - start_pos - 1
 
@@ -592,8 +603,11 @@ class trajectory_analysis:
         plt.close(fig3)
 
     def plot_distribution_angles(self, tlags=[1, 2, 3], plot_type='gkde', bin_size=18, min_pts=20, make_legend=False):
-        self.data_list_with_angles = pd.read_csv(self.results_dir + "/all_data_angles.txt", index_col=0,
-                                                 sep='\t', low_memory=False)
+        self.data_list_with_angles = pd.read_csv(self.results_dir + "/all_data_angles.txt", index_col=0, sep='\t', low_memory=False)
+
+        self.data_list_with_angles = self.data_list_with_angles.replace('', np.NaN)
+        self.data_list_with_angles.dropna(axis=0,subset=['group'],inplace=True)
+
         start_pos = self.data_list_with_angles.columns.get_loc("0")
         stop_pos = len(self.data_list_with_angles.columns) - start_pos - 1
 
@@ -1339,9 +1353,13 @@ class trajectory_analysis:
             self.data_list_with_step_sizes_full=self.data_list_with_step_sizes_full.replace('', np.NaN)
             self.data_list_with_step_sizes_full.dropna(axis=1,how='all',inplace=True)
             self.data_list_with_step_sizes_full.dropna(axis=0,subset=['id',],inplace=True)
+            self.data_list_with_step_sizes_full.dropna(axis=0, subset=['group',], inplace=True)
 
             self.data_list_with_angles = self.data_list_with_angles.replace('', np.NaN)
             self.data_list_with_angles.dropna(axis=1, how='all', inplace=True)
+            self.data_list_with_angles.dropna(axis=0, subset=['id', ], inplace=True)
+            self.data_list_with_angles.dropna(axis=0, subset=['group',], inplace=True)
+
 
         self.data_list_with_step_sizes_full.to_csv(self.results_dir + '/' + "all_data_step_sizes.txt", sep='\t')
         self.data_list_with_angles.to_csv(self.results_dir + '/' + "all_data_angles.txt", sep='\t')
@@ -1388,7 +1406,7 @@ class trajectory_analysis:
         full_results1['group']=''
         full_results1['group_readable']=''
         full_results2_cols1=['D_median','D_mean','D_median_filt','D_mean_filt']
-        full_results2_cols2=['D','err','r_sq','rmse','track_len','D_track_len']
+        full_results2_cols2=['D','err','r_sq','rmse','track_len','D_max_tlag']
         cols_len=len(full_results2_cols1) + len(full_results2_cols2)
         full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2)
         self.data_list_with_results_full = pd.concat([full_results1,full_results2], axis=1)
@@ -1436,6 +1454,7 @@ class trajectory_analysis:
                 # set up the figure axes for making rainbow tracks
                 if (self.make_rainbow_tracks):
                     common_index=files_group.index[0] # for the same file, the image dir is the same for all rows, just take first
+                    rt_image_found=True
                     if (common_index in self.valid_img_files and self.valid_img_files[common_index] != ''):
                         bk_img = io.imread(self.valid_img_files[common_index])
 
@@ -1456,6 +1475,8 @@ class trajectory_analysis:
                         # cur_ax_roi = cur_fig_roi.add_subplot(1, 1, 1)
                         # cur_ax_roi.axis("off")
                         # cur_ax_roi.imshow(bk_img, cmap="gray")
+                    else:
+                        rt_image_found=False
 
                 #count=0
                 #roi_cmap = cm.get_cmap('jet', len(files_group))
@@ -1589,7 +1610,7 @@ class trajectory_analysis:
                     self.log.flush()
 
                 # ran through all the rows with same csv/image file -- now save the rainbow tracks
-                if(self.make_rainbow_tracks):
+                if(self.make_rainbow_tracks and rt_image_found):
                     # save figure of lines plotted on bk_img
                     cur_fig.tight_layout()
                     out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_Deff.tif'
