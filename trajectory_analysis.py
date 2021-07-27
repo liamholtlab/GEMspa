@@ -200,8 +200,11 @@ class trajectory_analysis:
         self.traj_y_col = 'y'
 
         self.min_track_len_linfit = 11
+        self.min_track_len_loglogfit = 21
         self.min_track_len_step_size = 3
-        self.track_len_cutoff_linfit = 11
+        self.tlag_cutoff_linfit = 10
+        self.tlag_cutoff_linfit_ensemble = 10
+        self.tlag_cutoff_loglogfit_ensemble = 20
         self.max_tlag_step_size=3
 
         self.use_D_cutoffs=True
@@ -320,20 +323,22 @@ class trajectory_analysis:
                 self.data_list=pd.DataFrame(new_data_list, columns=self.data_list.columns)
                 self.data_list['id']=self.data_list.index + 1
 
-            if(self.make_rainbow_tracks):
+            if(self.make_rainbow_tracks or self.limit_to_ROIs):
                 for row in self.data_list.iterrows():
                     ind = row[1][self._index_col_name]
                     img_dir = row[1][self._img_file_col_name]
                     csv_file = row[1][self._file_col_name]
 
-                    img_file = img_dir + "/" + self.img_file_prefix + csv_file[5:-4]  # Drop "Traj_" at beginning, add prefix, and drop ".csv" at end
-                    if (not img_file.endswith(".tif")):
-                        img_file = img_file + ".tif"
-                    if (os.path.isfile(img_file)):
-                        self.valid_img_files[ind] = img_file
-                    else:
-                        self.valid_img_files[ind] = ''
-                        self.log.write(f"Error! Image file not found: {img_file} for rainbow tracks/ROIs.\n")
+                    if(self.make_rainbow_tracks or self.valid_roi_files[ind].endswith(".zip") or self.valid_roi_files[ind].endswith(".roi")):
+                        # if ROI is imagej .roi or .zip, then must check and load image file even if not making rainbow tracks
+                        img_file = img_dir + "/" + self.img_file_prefix + csv_file[5:-4]  # Drop "Traj_" at beginning, add prefix, and drop ".csv" at end
+                        if (not img_file.endswith(".tif")):
+                            img_file = img_file + ".tif"
+                        if (os.path.isfile(img_file)):
+                            self.valid_img_files[ind] = img_file
+                        else:
+                            self.valid_img_files[ind] = ''
+                            self.log.write(f"Error! Image file not found: {img_file} for rainbow tracks/ROIs.\n")
 
             if(self.get_calibration_from_metadata):
                 for row in self.data_list.iterrows():
@@ -399,10 +404,15 @@ class trajectory_analysis:
         self.log.write(f"Time between frames (s): {self.time_step}\n")
         self.log.write(f"Scale (microns per px): {self.micron_per_px}\n")
 
-        self.log.write(f"Min. track length (fit): {self.min_track_len_linfit}\n")
-        self.log.write(f"Track length cutoff (fit): {self.track_len_cutoff_linfit}\n")
+        self.log.write(f"Min. track length (effective Diff): {self.min_track_len_linfit}\n")
+        self.log.write(f"Max t-lag (effective Diff): {self.tlag_cutoff_linfit}\n")
+        self.log.write(f"Min. track length (anomalous Diff): {self.min_track_len_loglogfit}\n")
+        self.log.write(f"Max t-lag (effective Diff, ensemble average): {self.tlag_cutoff_linfit_ensemble}\n")
+        self.log.write(f"Max t-lag (anomalous Diff, ensemble average): {self.tlag_cutoff_loglogfit_ensemble}\n")
+
         self.log.write(f"Min track length (step size/angles): {self.min_track_len_step_size}\n")
         self.log.write(f"Max Tau (step size/angles): {self.max_tlag_step_size}\n")
+
         self.log.write(f"Min D for plots: {self.min_D_cutoff}\n")
         self.log.write(f"Max D for plots: {self.max_D_cutoff}\n")
 
@@ -419,8 +429,14 @@ class trajectory_analysis:
     def make_msd_diff_object(self):
         msd_diff_obj = msd_diff.msd_diffusion()
         msd_diff_obj.save_dir = self.results_dir
+
         msd_diff_obj.min_track_len_linfit = self.min_track_len_linfit
-        msd_diff_obj.track_len_cutoff_linfit = self.track_len_cutoff_linfit
+        msd_diff_obj.min_track_len_loglogfit = self.min_track_len_loglogfit
+
+        msd_diff_obj.tlag_cutoff_linfit = self.tlag_cutoff_linfit
+        msd_diff_obj.tlag_cutoff_linfit_ensemble = self.tlag_cutoff_linfit_ensemble
+        msd_diff_obj.tlag_cutoff_loglogfit_ensemble = self.tlag_cutoff_loglogfit_ensemble
+
         msd_diff_obj.min_track_len_step_size = self.min_track_len_step_size
         msd_diff_obj.max_tlag_step_size = self.max_tlag_step_size
 
@@ -1206,6 +1222,14 @@ class trajectory_analysis:
         self.data_list_with_step_sizes['group'] = ''
         self.data_list_with_step_sizes['group_readable'] = ''
 
+        # make a dataframe containing the NGP for each tlag
+        self.data_list_with_NGP = self.data_list.copy()
+        for tlag_i in range(1, self.max_tlag_step_size + 1, 1):
+            self.data_list_with_NGP['NGP_' + str(tlag_i)] = 0.0
+        self.data_list_with_NGP['area'] = ''
+        self.data_list_with_NGP['group'] = ''
+        self.data_list_with_NGP['group_readable'] = ''
+
         # make a full dataframe containing all data - angles
         nrows =  self.max_tlag_step_size * len(self.data_list)
         ncols = len(self.data_list.columns) + max_tlag1_angle_num_steps
@@ -1296,6 +1320,7 @@ class trajectory_analysis:
                 # for this movie, calcuate step sizes and angles for each track
                 msd_diff_obj.set_track_data(track_data)
                 msd_diff_obj.step_sizes_and_angles()
+                msd_diff_obj.non_gaussian_1d()
 
                 cur_data_step_sizes = msd_diff_obj.step_sizes
                 cur_data_angles = msd_diff_obj.angles
@@ -1321,13 +1346,18 @@ class trajectory_analysis:
                 for tlag_i in range(1,self.max_tlag_step_size+1,1):
                     ss_median = np.nanmedian(msd_diff_obj.step_sizes[tlag_i-1]) # FIX
                     ss_mean = np.nanmean(msd_diff_obj.step_sizes[tlag_i-1]) # FIX
-
                     self.data_list_with_step_sizes.at[index,'step_size_' + str(tlag_i) + '_median'] = ss_median
                     self.data_list_with_step_sizes.at[index,'step_size_' + str(tlag_i) + '_mean'] = ss_mean
-
                 self.data_list_with_step_sizes.at[index, 'area'] = roi_area
                 self.data_list_with_step_sizes.at[index, 'group'] = file_str
                 self.data_list_with_step_sizes.at[index, 'group_readable'] = group_readable
+
+                #fill NGP data
+                for tlag_i in range(1,self.max_tlag_step_size+1,1):
+                    self.data_list_with_NGP.at[index,'NGP_' + str(tlag_i)] = msd_diff_obj.ngp[tlag_i-1]
+                self.data_list_with_NGP.at[index, 'area'] = roi_area
+                self.data_list_with_NGP.at[index, 'group'] = file_str
+                self.data_list_with_NGP.at[index, 'group_readable'] = group_readable
 
                 #fill angle data
                 self.data_list_with_angles.loc[full_data_a_i:full_data_a_i+a_len-1,'id']=index
@@ -1348,6 +1378,7 @@ class trajectory_analysis:
                 self.log.flush()
 
         self.data_list_with_step_sizes.to_csv(self.results_dir + '/' + "summary_step_sizes.txt", sep='\t')
+        self.data_list_with_NGP.to_csv(self.results_dir + '/' + "NGP.txt", sep='\t')
 
         if ((self.get_calibration_from_metadata or self.limit_to_ROIs)):
             self.data_list_with_step_sizes_full=self.data_list_with_step_sizes_full.replace('', np.NaN)
@@ -1382,6 +1413,7 @@ class trajectory_analysis:
 
         # get total number of tracks for all groups/all files so I can make a large dataframe to fill
         full_length=0
+        max_num_tracks=0
         for group_i,group in enumerate(group_list):
             group_df = self.grouped_data_list.get_group(group)
             for index,data in group_df.iterrows():
@@ -1397,6 +1429,9 @@ class trajectory_analysis:
                 #filter for tracks with min length (Diffusion data will only be returned for these tracks)
                 hist, bin_edges=np.histogram(track_data[:,0], bins=range(1,int(np.max(track_data[:,0])+2),1))
                 full_length += len(hist[hist >= self.min_track_len_linfit])
+                num_tracks=len(np.unique(track_data[:,0]))
+                if(num_tracks > max_num_tracks):
+                    max_num_tracks=num_tracks
 
         # make a full dataframe containing all data, including all D values for all tracks etc.
         # NOTE: if track data must be filtered b/c of uneven time steps (done below), then this array may not be filled completely
@@ -1411,6 +1446,19 @@ class trajectory_analysis:
         full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2)
         self.data_list_with_results_full = pd.concat([full_results1,full_results2], axis=1)
 
+        # make a dataframe for the radius of gyration and track length.  for each, the distribution will be output in a row
+        colnames = list(self.data_list.columns)
+        endpos = len(colnames)
+        rest_cols = np.asarray(range(max_num_tracks))
+        rest_cols = rest_cols.astype('str')
+        colnames.extend(rest_cols)
+        self.data_list_with_Rg = pd.DataFrame(np.empty((len(self.data_list)*2, len(self.data_list.columns) + max_num_tracks),
+                                                       dtype=np.str), columns=colnames)
+        self.data_list_with_Rg.insert(loc=0, column='id', value='')
+        self.data_list_with_Rg.insert(loc=endpos + 1, column='group', value='')
+        self.data_list_with_Rg.insert(loc=endpos + 2, column='group_readable', value='')
+        self.data_list_with_Rg.insert(loc=endpos + 3, column='data', value='')
+
         # make a dataframe containing only median and mean D values for each movie
         self.data_list_with_results = self.data_list.copy()
         self.data_list_with_results['D_median']=0.0
@@ -1420,12 +1468,18 @@ class trajectory_analysis:
         self.data_list_with_results['num_tracks'] = 0
         self.data_list_with_results['num_tracks_D'] = 0
         self.data_list_with_results['area'] = ''
+        self.data_list_with_results['ensemble_D'] = ''
+        self.data_list_with_results['ensemble_r_sq'] = ''
+        self.data_list_with_results['ensemble_loglog_K'] = ''
+        self.data_list_with_results['ensemble_loglog_aexp'] = ''
+        self.data_list_with_results['ensemble_loglog_r_sq'] = ''
         self.data_list_with_results['group']=''
         self.data_list_with_results['group_readable'] = ''
 
         msd_diff_obj = self.make_msd_diff_object()
 
         full_data_i=0
+        Rg_i=0
         for group_i,group in enumerate(group_list):
             group_df = self.grouped_data_list.get_group(group)
             file_str = ""
@@ -1539,6 +1593,10 @@ class trajectory_analysis:
                     msd_diff_obj.set_track_data(track_data)
                     msd_diff_obj.msd_all_tracks()
                     msd_diff_obj.fit_msd()
+                    msd_diff_obj.calculate_ensemble_average()
+                    msd_diff_obj.fit_msd_ensemble()
+                    msd_diff_obj.fit_msd_ensemble_alpha()
+                    msd_diff_obj.radius_of_gyration()
 
                     # rainbow tracks
                     if(self.make_rainbow_tracks):
@@ -1576,6 +1634,7 @@ class trajectory_analysis:
                         D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
                         D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
 
+                    # Fill data array with eff-D
                     cur_data = msd_diff_obj.D_linfits[:,1:] #don't need track id column
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'id'] = index
                     for k in range(len(self.data_list.columns)):
@@ -1586,11 +1645,21 @@ class trajectory_analysis:
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean']=D_mean
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median_filt']=D_median_filt
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean_filt']=D_mean_filt
-
-                    # ADD: D, err, r_sq, rmse, track_len, D_track_len, for each track
                     next_col = len(full_results1.columns) + len(full_results2_cols1)
                     self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),next_col:next_col+len(cur_data[0])]=cur_data
 
+                    # fill Rg data and track len data
+                    self.data_list_with_Rg.loc[Rg_i:Rg_i+1, 'id'] = index
+                    for k in range(len(self.data_list.columns)):
+                        self.data_list_with_Rg.iloc[Rg_i:Rg_i+2, k + 1] = self.data_list.loc[index][k]
+                    self.data_list_with_Rg.loc[Rg_i:Rg_i+1,'group'] = file_str
+                    self.data_list_with_Rg.loc[Rg_i:Rg_i+1,'group_readable'] = group_readable
+                    self.data_list_with_Rg.loc[Rg_i,'data'] = 'track_len'
+                    self.data_list_with_Rg.loc[Rg_i+1,'data'] = 'Rg'
+                    self.data_list_with_Rg.loc[Rg_i, "0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.track_lengths[:,1]
+                    self.data_list_with_Rg.loc[Rg_i+1,"0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.r_of_g[:,1]
+
+                    # fill summary data array
                     self.data_list_with_results.at[index, 'D_median'] = D_median
                     self.data_list_with_results.at[index, 'D_mean'] = D_mean
                     self.data_list_with_results.at[index, 'D_median_filtered'] = D_median_filt
@@ -1600,12 +1669,18 @@ class trajectory_analysis:
                     self.data_list_with_results.at[index, 'area'] = roi_area
                     self.data_list_with_results.at[index, 'group'] = file_str
                     self.data_list_with_results.at[index, 'group_readable']=group_readable
+                    self.data_list_with_results.at[index, 'ensemble_D']=msd_diff_obj.ensemble_fit_D
+                    self.data_list_with_results.at[index, 'ensemble_r_sq'] = msd_diff_obj.ensemble_fit_rsq
+                    self.data_list_with_results.at[index, 'ensemble_loglog_K'] = msd_diff_obj.anomolous_fit_K
+                    self.data_list_with_results.at[index, 'ensemble_loglog_aexp'] = msd_diff_obj.anomolous_fit_alpha
+                    self.data_list_with_results.at[index, 'ensemble_loglog_r_sq'] = msd_diff_obj.anomolous_fit_rsq
 
                     if(save_per_file_data):
                         msd_diff_obj.save_msd_data(file_name=file_str + '_' + str(index) + "_MSD.txt")
                         msd_diff_obj.save_fit_data(file_name=file_str + '_' + str(index) + "_Dlin.txt")
 
                     full_data_i += len(cur_data)
+                    Rg_i += 2
                     self.log.write("Processed "+str(index) +" "+cur_file+" for MSD and Diffusion coeff.\n")
                     self.log.flush()
 
@@ -1627,12 +1702,20 @@ class trajectory_analysis:
                     # cur_fig_roi.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
                     # plt.close(cur_fig_roi)
 
-        self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
-
         if((self.get_calibration_from_metadata or self.limit_to_ROIs) and full_length > full_data_i):
             #need to remove the extra rows of the df b/c some tracks were filtered
             to_drop = range(full_data_i,full_length,1)
             self.data_list_with_results_full.drop(to_drop, axis=0, inplace=True)
 
+            self.data_list_with_Rg = self.data_list_with_Rg.replace('', np.NaN)
+            self.data_list_with_Rg.dropna(axis=1, how='all', inplace=True)
+
+        # TODO navigate through the groups, calculating med(D) for each group
+        # add to the summary data
+        pass
+
+        self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
+
         self.data_list_with_results_full.to_csv(self.results_dir + '/' + "all_data.txt", sep='\t')
+        self.data_list_with_Rg.to_csv(self.results_dir + '/' + "all_data_track_len_and_Rg.txt", sep='\t')
 
