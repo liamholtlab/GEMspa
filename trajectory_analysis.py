@@ -200,11 +200,10 @@ class trajectory_analysis:
         self.traj_y_col = 'y'
 
         self.min_track_len_linfit = 11
-        self.min_track_len_loglogfit = 21
         self.min_track_len_step_size = 3
         self.tlag_cutoff_linfit = 10
         self.tlag_cutoff_linfit_ensemble = 10
-        self.tlag_cutoff_loglogfit_ensemble = 20
+        self.tlag_cutoff_loglogfit_ensemble = 10
         self.max_tlag_step_size=3
 
         self.use_D_cutoffs=True
@@ -406,7 +405,6 @@ class trajectory_analysis:
 
         self.log.write(f"Min. track length (effective Diff): {self.min_track_len_linfit}\n")
         self.log.write(f"Max t-lag (effective Diff): {self.tlag_cutoff_linfit}\n")
-        self.log.write(f"Min. track length (anomalous Diff): {self.min_track_len_loglogfit}\n")
         self.log.write(f"Max t-lag (effective Diff, ensemble average): {self.tlag_cutoff_linfit_ensemble}\n")
         self.log.write(f"Max t-lag (anomalous Diff, ensemble average): {self.tlag_cutoff_loglogfit_ensemble}\n")
 
@@ -431,7 +429,6 @@ class trajectory_analysis:
         msd_diff_obj.save_dir = self.results_dir
 
         msd_diff_obj.min_track_len_linfit = self.min_track_len_linfit
-        msd_diff_obj.min_track_len_loglogfit = self.min_track_len_loglogfit
 
         msd_diff_obj.tlag_cutoff_linfit = self.tlag_cutoff_linfit
         msd_diff_obj.tlag_cutoff_linfit_ensemble = self.tlag_cutoff_linfit_ensemble

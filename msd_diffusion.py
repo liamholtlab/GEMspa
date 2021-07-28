@@ -39,8 +39,9 @@ class msd_diffusion:
         self.max_tlag_step_size=3
 
         self.tlag_cutoff_linfit=10
+        self.tlag_cutoff_loglogfit=20
         self.tlag_cutoff_linfit_ensemble=10
-        self.tlag_cutoff_loglogfit_ensemble=20
+        self.tlag_cutoff_loglogfit_ensemble=10
 
         self.perc_tlag_linfit=25
         self.use_perc_tlag_linfit=False
@@ -74,7 +75,7 @@ class msd_diffusion:
         self.D_lin_len_col = 5
         self.D_lin_fitlen_col = 6
 
-        self.D_loglog_num_cols=8
+        self.D_loglog_num_cols=9
         self.D_loglog_id_col=0
         self.D_loglog_K_col = 1
         self.D_loglog_alpha_col = 2
@@ -83,6 +84,7 @@ class msd_diffusion:
         self.D_loglog_rsq_col = 5
         self.D_loglog_rmse_col = 6
         self.D_loglog_len_col = 7
+        self.D_loglog_fitlen_col = 8
 
     def set_track_data(self, track_data):
         self.tracks=track_data
@@ -491,17 +493,18 @@ class msd_diffusion:
         self.D_loglogfits = np.zeros((len(ids),self.D_loglog_num_cols,))
         for i,id in enumerate(ids):
             cur_track = valid_tracks[np.where(valid_tracks[:, self.msd_id_col] == id)]
+            stop = self.tlag_cutoff_loglogfit + 1
 
             def linear_fn(x, m, b):
                 return m * x + b
             linear_fn_v = np.vectorize(linear_fn)
 
-            popt, pcov = curve_fit(linear_fn, np.log(cur_track[1:,self.msd_t_col]), np.log(cur_track[1:,self.msd_msd_col]),
+            popt, pcov = curve_fit(linear_fn, np.log(cur_track[1:stop,self.msd_t_col]), np.log(cur_track[1:stop,self.msd_msd_col]),
                                    p0=[self.initial_guess_aexp,np.log(4*self.initial_guess_linfit),])
-            residuals = np.log(cur_track[1:,self.msd_msd_col]) - linear_fn_v(np.log(cur_track[1:,self.msd_t_col]), popt[0],popt[1])
+            residuals = np.log(cur_track[1:stop,self.msd_msd_col]) - linear_fn_v(np.log(cur_track[1:stop,self.msd_t_col]), popt[0],popt[1])
             ss_res = np.sum(residuals ** 2)
             rmse = np.mean(residuals**2)**0.5
-            ss_tot = np.sum((np.log(cur_track[1:,self.msd_msd_col]) - np.mean(np.log(cur_track[1:,self.msd_msd_col]))) ** 2)
+            ss_tot = np.sum((np.log(cur_track[1:stop,self.msd_msd_col]) - np.mean(np.log(cur_track[1:stop,self.msd_msd_col]))) ** 2)
 
             r_squared = 1 - (ss_res / ss_tot)
 
@@ -513,6 +516,7 @@ class msd_diffusion:
             self.D_loglogfits[i][self.D_loglog_rsq_col] = r_squared
             self.D_loglogfits[i][self.D_loglog_rmse_col] = rmse
             self.D_loglogfits[i][self.D_loglog_len_col] = cur_track[0][self.msd_len_col]
+            self.D_loglogfits[i][self.D_loglog_fitlen_col] = stop - 1
 
     def save_fit_data(self, file_name="fit_results.txt"):
         df = pd.DataFrame(self.D_linfits)
@@ -599,7 +603,8 @@ class msd_diffusion:
 
                 if(len(self.msd_tracks)>0):
                     cur_msd = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_id_col] == id)]
-                    axs[i, 2].plot(cur_msd[1:self.tlag_cutoff_linfit+1,self.msd_t_col],cur_msd[1:self.tlag_cutoff_linfit+1,self.msd_msd_col])
+                    axs[i, 2].plot(cur_msd[1:self.tlag_cutoff_linfit+1,self.msd_t_col],
+                                   cur_msd[1:self.tlag_cutoff_linfit+1,self.msd_msd_col])
 
                     if (len(self.D_linfits) > 0):
                         cur_D_linfits = self.D_linfits[np.where(self.D_linfits[:, self.D_lin_id_col] == id)]
@@ -614,14 +619,14 @@ class msd_diffusion:
                     if (len(self.D_loglogfits) > 0):
                         cur_D_loglogfits = self.D_loglogfits[np.where(self.D_loglogfits[:, self.D_loglog_id_col] == id)]
                         if (len(cur_D_loglogfits) > 0):
-                            axs[i, 3].plot(np.log10(cur_msd[1:, self.msd_t_col]),
-                                           np.log10(cur_msd[1:, self.msd_msd_col]))
+                            axs[i, 3].plot(np.log10(cur_msd[1:self.tlag_cutoff_loglogfit+1, self.msd_t_col]),
+                                           np.log10(cur_msd[1:self.tlag_cutoff_loglogfit+1, self.msd_msd_col]))
 
                             cur_K = cur_D_loglogfits[0, self.D_loglog_K_col]
                             cur_alpha = cur_D_loglogfits[0, self.D_loglog_alpha_col]
                             cur_r2 = cur_D_loglogfits[0, self.D_loglog_rsq_col]
-                            y_vals_from_fit = linear_fn_v2(np.log10(cur_msd[1:,self.msd_t_col]), cur_alpha, np.log10(4*cur_K))
-                            axs[i, 3].plot(np.log10(cur_msd[1:,self.msd_t_col]), y_vals_from_fit, color='black')
+                            y_vals_from_fit = linear_fn_v2(np.log10(cur_msd[1:self.tlag_cutoff_loglogfit+1,self.msd_t_col]), cur_alpha, np.log10(4*cur_K))
+                            axs[i, 3].plot(np.log10(cur_msd[1:self.tlag_cutoff_loglogfit+1,self.msd_t_col]), y_vals_from_fit, color='black')
                             axs[i, 3].set_title(f"K={np.round(cur_K, 2)}, alpha={np.round(cur_alpha, 2)}, r2={np.round(cur_r2, 2)}")
                             axs[i, 3].set_ylabel('log10[MSD (microns^2)]')
 
