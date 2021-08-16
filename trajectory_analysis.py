@@ -199,11 +199,24 @@ class trajectory_analysis:
         self.traj_x_col = 'x'
         self.traj_y_col = 'y'
 
+        # this is the min. track length for individual tracks
+        # any tracks >= this length will be fitted to the equation: MSD(τ) = 4Dτ to get eff-D
         self.min_track_len_linfit = 11
-        self.min_track_len_step_size = 3
+
+        # this is the number of τ (time-lag) to use to fit the above equation to calculate eff-D
         self.tlag_cutoff_linfit = 10
+
+        # when calculating ensemble average, include tracks >= this length
+        self.min_track_len_ensemble = 11
+
+        # this is the number of τ (time-lags) to use to fit the above equation to calculate eff-D from ensemble average
         self.tlag_cutoff_linfit_ensemble = 10
+
+        # this is the number of τ (time-lag) to use to fit the BELOW equation to calculate D and anomolous exponent
+        # MSD(τ) = 4Dτ^α (α is the anomolous exponent, τ is the time-lag)
         self.tlag_cutoff_loglogfit_ensemble = 10
+
+        self.min_track_len_step_size = 3
         self.max_tlag_step_size=3
 
         self.use_D_cutoffs=True
@@ -399,17 +412,19 @@ class trajectory_analysis:
         self.log.write(f"Filter with ROI file: {self.limit_to_ROIs}\n")
         self.log.write(f"Read calibration from metadata: {self.get_calibration_from_metadata}\n")
         self.log.write(f"Filter for uneven time steps: {self.uneven_time_steps}\n")
-        self.log.write(f"Min. time step resolution: {self.ts_resolution}\n")
+        self.log.write(f"Min time step resolution: {self.ts_resolution}\n")
         self.log.write(f"Time between frames (s): {self.time_step}\n")
         self.log.write(f"Scale (microns per px): {self.micron_per_px}\n")
 
-        self.log.write(f"Min. track length (effective Diff): {self.min_track_len_linfit}\n")
+        self.log.write(f"Min track length (effective Diff): {self.min_track_len_linfit}\n")
+        self.log.write(f"Min track length (ensemble average): {self.min_track_len_ensemble}\n")
+
         self.log.write(f"Max t-lag (effective Diff): {self.tlag_cutoff_linfit}\n")
         self.log.write(f"Max t-lag (effective Diff, ensemble average): {self.tlag_cutoff_linfit_ensemble}\n")
         self.log.write(f"Max t-lag (anomalous Diff, ensemble average): {self.tlag_cutoff_loglogfit_ensemble}\n")
 
         self.log.write(f"Min track length (step size/angles): {self.min_track_len_step_size}\n")
-        self.log.write(f"Max Tau (step size/angles): {self.max_tlag_step_size}\n")
+        self.log.write(f"Max t-lag (step size/angles): {self.max_tlag_step_size}\n")
 
         self.log.write(f"Min D for plots: {self.min_D_cutoff}\n")
         self.log.write(f"Max D for plots: {self.max_D_cutoff}\n")
@@ -429,6 +444,7 @@ class trajectory_analysis:
         msd_diff_obj.save_dir = self.results_dir
 
         msd_diff_obj.min_track_len_linfit = self.min_track_len_linfit
+        msd_diff_obj.min_track_len_ensemble = self.min_track_len_ensemble
 
         msd_diff_obj.tlag_cutoff_linfit = self.tlag_cutoff_linfit
         msd_diff_obj.tlag_cutoff_linfit_ensemble = self.tlag_cutoff_linfit_ensemble

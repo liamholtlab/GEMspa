@@ -55,12 +55,12 @@ class RunDialog(wx.Dialog):
         spacing=35
         params_list = ['Time between frames (s):', 'Scale (microns per px):',
                        'Min. track length (effective Diff):', 'Max t-lag (effective Diff):',
-                       'Max t-lag (anomalous Diff, ensemble average)',
+                       'Min. track length (ensemble average):', 'Max t-lag (ensemble average, anomalous exp)',
                        'Min track length (step size/angles):', 'Max t-lag (step size/angles):',
                        'Time step tolerance (uneven time steps) (s):',
                        'Min D for filtered plots:','Max D for filtered plots:', 'Max D for rainbow tracks:',
                        'Max step size for rainbow tracks (microns):','Prefix for image file name:']
-        default_values = [0.010,0.11,11,10,10,3,3,0.005,0,2,2,1,'DNA_']
+        default_values = [0.010,0.11,11,10,11,10,3,3,0.005,0,2,2,1,'DNA_']
         self.text_ctrl_run_params=[]
         for i,param in enumerate(params_list):
             wx.StaticText(panel, label=param, pos=(10,start_y+i*spacing))
@@ -93,28 +93,34 @@ class RunDialog(wx.Dialog):
         return float(self.text_ctrl_run_params[0].GetValue())
     def get_micron_per_px(self):
         return float(self.text_ctrl_run_params[1].GetValue())
+
     def get_min_track_len_linfit(self):
         return int(self.text_ctrl_run_params[2].GetValue())
     def get_tlag_cutoff_linfit(self):
         return int(self.text_ctrl_run_params[3].GetValue())
-    def get_tlag_cutoff_loglogfit_ensemble(self):
+
+    def get_min_track_len_ensemble(self):
         return int(self.text_ctrl_run_params[4].GetValue())
-    def get_min_track_len_step_size(self):
+    def get_tlag_cutoff_loglogfit_ensemble(self):
         return int(self.text_ctrl_run_params[5].GetValue())
-    def get_max_tlag_step_size(self):
+
+    def get_min_track_len_step_size(self):
         return int(self.text_ctrl_run_params[6].GetValue())
+    def get_max_tlag_step_size(self):
+        return int(self.text_ctrl_run_params[7].GetValue())
+
     def get_time_step_resolution(self):
-        return float(self.text_ctrl_run_params[7].GetValue())
-    def get_min_D_cutoff(self):
         return float(self.text_ctrl_run_params[8].GetValue())
-    def get_max_D_cutoff(self):
+    def get_min_D_cutoff(self):
         return float(self.text_ctrl_run_params[9].GetValue())
-    def get_max_D_rainbow_tracks(self):
+    def get_max_D_cutoff(self):
         return float(self.text_ctrl_run_params[10].GetValue())
+    def get_max_D_rainbow_tracks(self):
+        return float(self.text_ctrl_run_params[11].GetValue())
     def get_max_step_size_rainbow_tracks(self):
-        return int(self.text_ctrl_run_params[11].GetValue())
+        return int(self.text_ctrl_run_params[12].GetValue())
     def get_prefix_for_image_name(self):
-        return self.text_ctrl_run_params[12].GetValue().strip()
+        return self.text_ctrl_run_params[13].GetValue().strip()
 
 class GEMSAnalyzerMainFrame(wx.Frame):
 
@@ -512,12 +518,17 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.time_step = dlg.get_time_step()
                     traj_an.micron_per_px = dlg.get_micron_per_px()
                     traj_an.ts_resolution=dlg.get_time_step_resolution()
+
                     traj_an.min_track_len_linfit = dlg.get_min_track_len_linfit()
-                    traj_an.min_track_len_step_size = dlg.get_min_track_len_step_size()
+                    traj_an.min_track_len_ensemble = dlg.get_min_track_len_ensemble() #user can set
+
                     traj_an.tlag_cutoff_linfit = dlg.get_tlag_cutoff_linfit()
-                    traj_an.tlag_cutoff_linfit_ensemble = dlg.get_tlag_cutoff_linfit()
-                    traj_an.tlag_cutoff_loglogfit_ensemble = dlg.get_tlag_cutoff_loglogfit_ensemble()
+                    traj_an.tlag_cutoff_linfit_ensemble = dlg.get_tlag_cutoff_linfit() # uses same cutoff as for individual tracks
+                    traj_an.tlag_cutoff_loglogfit_ensemble = dlg.get_tlag_cutoff_loglogfit_ensemble() # user can set
+
+                    traj_an.min_track_len_step_size = dlg.get_min_track_len_step_size()
                     traj_an.max_tlag_step_size = dlg.get_max_tlag_step_size()
+
                     traj_an.min_D_cutoff = dlg.get_min_D_cutoff()
                     traj_an.max_D_cutoff = dlg.get_max_D_cutoff()
                     traj_an.max_ss_rainbow_tracks = dlg.get_max_step_size_rainbow_tracks()
@@ -538,11 +549,13 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.make_plot() #label_order=conditions_order)
                     traj_an.make_plot_combined_data() #label_order=conditions_order) # like matlab
                     traj_an.calculate_step_sizes_and_angles()
-                    traj_an.plot_distribution_step_sizes(tlags=[1,])
-                    traj_an.plot_distribution_angles(tlags=[1,])
-                    traj_an.plot_distribution_Deff()
-                    if(limit_with_rois):
-                        traj_an.make_plot_roi_area()
+
+                    #traj_an.plot_distribution_step_sizes(tlags=[1,])
+                    #traj_an.plot_distribution_angles(tlags=[1,])
+                    #traj_an.plot_distribution_Deff()
+
+                    #if(limit_with_rois):
+                    #    traj_an.make_plot_roi_area()
 
                     self.statusbar.SetStatusText('Finished!')
                     print("Finished!")

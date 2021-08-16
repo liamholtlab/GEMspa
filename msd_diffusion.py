@@ -33,13 +33,14 @@ class msd_diffusion:
         self.micron_per_px = 0.11
 
         self.min_track_len_linfit=11  # min. 11 track length gives at least 10 tlag values
-        self.min_track_len_loglogfit=21  # min. 21 track length gives at least 20 tlag values
+        self.min_track_len_loglogfit=11
+        self.min_track_len_ensemble=11
 
         self.min_track_len_step_size = 3
         self.max_tlag_step_size=3
 
         self.tlag_cutoff_linfit=10
-        self.tlag_cutoff_loglogfit=20
+        self.tlag_cutoff_loglogfit=10
         self.tlag_cutoff_linfit_ensemble=10
         self.tlag_cutoff_loglogfit_ensemble=10
 
@@ -92,9 +93,11 @@ class msd_diffusion:
         self.D_linfits = np.asarray([])
         self.D_loglogfits = np.asarray([])
         self.r_of_g = np.asarray([])
+        self.r_of_g_full = np.asarray([])
         self.ngp = np.asarray([])
         self.kurt = np.asarray([])
         self.ensemble_average = np.asarray([])
+        self.angles_tlag1=np.asarray([])
         self.fill_track_lengths()
         self.fill_track_sizes()
 
@@ -163,6 +166,10 @@ class msd_diffusion:
         self.angles = np.empty((self.max_tlag_step_size, tlag1_dim_angles,))
         self.angles.fill(np.nan)
 
+        # used for angle autocorrelation
+        self.angles_tlag1 = np.empty((len(ids),int(np.max(track_lens - 2))+1))
+        self.angles_tlag1.fill(np.nan)
+
         start_arr=np.zeros((self.max_tlag_step_size,), dtype='int')
         angle_start_arr = np.zeros((self.max_tlag_step_size,), dtype='int')
         for id_i,id in enumerate(ids):
@@ -172,6 +179,7 @@ class msd_diffusion:
             x = cur_track[:, self.tracks_x_col]
             y = cur_track[:, self.tracks_y_col]
             tlags = np.arange(1, num_shifts+1, 1)
+            self.angles_tlag1[id_i][0]=id
             for i, tlag in enumerate(tlags):
                 x_shifts = x[tlag:] - x[:-tlag]
                 y_shifts = y[tlag:] - y[:-tlag]
@@ -191,6 +199,10 @@ class msd_diffusion:
                             print("norm of vec is 0: id=", id)
                         theta[theta_i] = np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag]))))
                     self.angles[i][angle_start_arr[i]:angle_start_arr[i]+len(theta)] = theta
+
+                    if(i==0):
+                       self.angles_tlag1[id_i][1:len(theta)+1]=theta
+
                     angle_start_arr[i] += len(theta)
 
     def msd_all_tracks(self):
@@ -241,23 +253,31 @@ class msd_diffusion:
         else:
             self.r_of_g_full=np.asarray([])
 
-    def radius_of_gyration(self, ):
-        # for each track, do r. of g. calculation (calculated only for the full track length)
+    def radius_of_gyration(self, len_cutoff=0):
+        # for each track, do r. of g. calculation (calculated only for a single length)
+        # if len_cutoff > 1, then r.of.g. will be calculated at len_cutoff and only for tracks >= len_cutoff
+        # otherwise, r.of.g. will be calculated for all tracks at their full length
         # https://doi.org/10.1039/c0cp01805h
+
         if(len(self.tracks)>0):
-            ids = np.unique(self.tracks[:, self.tracks_id_col])
-            self.r_of_g = np.zeros((len(ids), 2), )
+            if(len_cutoff>1):
+                valid_track_ids = self.track_lengths[np.where(self.track_lengths[:, 1] >= len_cutoff)][:,0]
+            else:
+                valid_track_ids = np.unique(self.tracks[:, self.tracks_id_col])
+
+            self.r_of_g = np.zeros((len(valid_track_ids), 2), )
             i = 0
-            for id in ids:
+            for id in valid_track_ids:
                 cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
-                n = len(cur_track)
-                T = np.cov(cur_track[:, self.tracks_x_col],
-                           cur_track[:, self.tracks_y_col]) * (
-                                n - 1) / n  # np.cov divides by (n-1) but i want to divide by n
+                if(len_cutoff > 1):
+                    n=len_cutoff
+                else:
+                    n=len(cur_track)
+                T = np.cov(cur_track[:n, self.tracks_x_col], cur_track[:n, self.tracks_y_col]) * (n - 1) / n  # np.cov divides by (n-1) but i want to divide by n
+
                 w, v = LA.eig(T)
                 self.r_of_g[i, 0] = id
-                self.r_of_g[i, 1] = np.sqrt(
-                    np.sum(w)) * self.micron_per_px  # eigenvalues (w) are squared radii of gyration
+                self.r_of_g[i, 1] = np.sqrt(np.sum(w)) * self.micron_per_px  # eigenvalues (w) are squared radii of gyration
                 i += 1
         else:
             self.r_of_g=np.asarray([])
@@ -290,9 +310,8 @@ class msd_diffusion:
     def calculate_ensemble_average(self):
         # average the MSD at each t-lag
 
-        # filter tracks by length (No?)
-        valid_tracks = self.msd_tracks
-        #valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_linfit - 1))]
+        # filter tracks by length
+        valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_ensemble - 1))]
 
         max_tlag=int(np.max(valid_tracks[:,self.msd_len_col]))
 
@@ -302,7 +321,7 @@ class msd_diffusion:
             tlag_time=tlag*self.time_step
             cur_tlag_MSDs=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
 
-            ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs), np.std(cur_tlag_MSDs)])
+            ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs)])
 
         self.ensemble_average=np.asarray(ensemble_average)
 
@@ -368,6 +387,33 @@ class msd_diffusion:
         self.ensemble_fit_err=np.sqrt(np.diag(pcov)) #one standard deviation error on the parameter
 
     def plot_msd_ensemble(self, file_name="msd_ensemble.pdf", ymax=-1, xmax=-1, fit_line=False):
+
+        def power_law_fn(x, a, D):
+            return 4*D*x**a
+
+        power_law_fn_v = np.vectorize(power_law_fn)
+
+        # loglog plot and anomolous exp
+        plt.scatter(self.ensemble_average[:, 0], self.ensemble_average[:, 1], s=2, marker='o')
+
+        if (fit_line):  # np.exp(popt[1])/4
+            y_vals_from_fit = power_law_fn_v(self.ensemble_average[:, 0], self.anomolous_fit_alpha, self.anomolous_fit_K)
+            plt.plot(self.ensemble_average[:, 0], y_vals_from_fit, linestyle='dashed', linewidth=0.5, color='red', alpha=0.75)
+            #plt.axvline(self.tlag_cutoff_loglogfit_ensemble * self.time_step)
+            plt.title('D = ' + str(np.round(self.anomolous_fit_K, 4)) + ', a = ' + str(np.round(self.anomolous_fit_alpha, 4)))
+
+        if (ymax > 0):
+            plt.ylim(np.min(y_vals_from_fit), ymax)
+        if (xmax > 0):
+            plt.xlim(self.ensemble_average[0, 0], xmax)
+        plt.xlabel('tau (s)')
+        plt.ylabel('MSD (micron^2)')
+
+        (file_root, ext) = os.path.splitext(file_name)
+        plt.savefig(self.save_dir + '/' + file_root + '-loglog' + ext)
+        plt.clf()
+
+    def plot_msd_ensemble2(self, file_name="msd_ensemble.pdf", ymax=-1, xmax=-1, fit_line=False):
 
         def linear_fn(x, a):
             return 4 * a * x
@@ -482,6 +528,11 @@ class msd_diffusion:
         # fit MSD curve to get anomolous exponent, fit of each track
         # filter for tracks > min-length
 
+        # MSD(t) = L * t ^ a
+        # L = 4K
+        # log(MSD) = a * log(t) + log(L)
+        # FIT to straight line
+
         if(len(self.msd_tracks) == 0):
             return ()
 
@@ -526,6 +577,14 @@ class msd_diffusion:
         df.to_csv(self.save_dir + '/' + file_name, sep='\t', index=False)
         return df
 
+    def save_alpha_fit_data(self, file_name="alpha_fit_results.txt"):
+        df = pd.DataFrame(self.D_loglogfits)
+        df.rename(columns={self.D_loglog_id_col: 'id', self.D_loglog_K_col: 'K', self.D_loglog_alpha_col: 'alpha',
+                           self.D_loglog_errK_col: 'err_K', self.D_loglog_erralpha_col: 'err_alpha', self.D_loglog_rsq_col: 'r_sq',
+                           self.D_loglog_rmse_col: 'rmse', self.D_loglog_len_col: 'track_len', self.D_loglog_fitlen_col: 'fit_track_len'}, inplace=True)
+        df.to_csv(self.save_dir + '/' + file_name, sep='\t', index=False)
+        return df
+
     def save_msd_data(self, file_name="msd_results.txt"):
         df = pd.DataFrame(self.msd_tracks)
         df.rename(columns={self.msd_id_col: 'id', self.msd_t_col: 't', self.msd_frame_col: 'frame',
@@ -534,7 +593,8 @@ class msd_diffusion:
         df.to_csv(self.save_dir + '/' + file_name, sep='\t', index=False)
         return df
 
-    def plot_msd_curves(self, file_name="msd_all.pdf", max_tracks=50, ymax=-1, xmax=-1, min_track_len=0, fit_line=False):
+    def plot_msd_curves(self, file_name="msd_all.pdf", max_tracks=50, ymax=-1, xmax=-1,
+                        min_track_len=0, fit_line=False, scale='linear'):
 
         def linear_fn(x, a):
             return 4 * a * x
@@ -550,6 +610,7 @@ class msd_diffusion:
             cur_track = valid_tracks[np.where(valid_tracks[:, self.msd_id_col] == id)]
             #if(self.D_linfits[i][3]<0.75):
             plt.plot(cur_track[1:,self.msd_t_col], cur_track[1:,self.msd_msd_col], linewidth=".5")
+            plt.scatter(cur_track[1:, self.msd_t_col], cur_track[1:, self.msd_msd_col], s=0.5)
             if(len(cur_track[1:,self.msd_t_col]) > len(x_range)):
                 x_range=cur_track[1:,self.msd_t_col]
 
@@ -561,16 +622,27 @@ class msd_diffusion:
             plt.plot(x_range, y_vals_from_fit, color='black')
             plt.title('Deff(med)=' + str(np.round(np.median(self.D_linfits[:,self.D_lin_D_col]), 2)) +
                       ' (mean)='+str(np.round(np.mean(self.D_linfits[:,self.D_lin_D_col]),2)))
-        plt.xlabel('t-lag (s)')
-        plt.ylabel('MSD (microns^2)')
-        if(ymax>0):
-            plt.ylim(0,ymax)
+
+        if(scale == 'linear'):
+            if (ymax > 0):
+                plt.ylim(0, ymax)
+        else:
+            if (ymax > 0):
+                plt.ylim(.001, ymax)
         if (xmax > 0):
-            plt.xlim(0, xmax)
+            plt.xlim(self.time_step, xmax)
+        else:
+            plt.xlim(self.time_step, plt.xlim()[1])
+        plt.xscale(scale)
+        plt.yscale(scale)
+        plt.xlabel('tau (s)')
+        plt.ylabel('MSD (microns^2)')
+
         plt.savefig(self.save_dir + '/' + file_name)
         plt.clf()
+        plt.close()
 
-    def plot_sample_tracks(self, file_name="sample_tracks.pdf", max_tracks=12, min_track_len=11):
+    def plot_sample_tracks0(self, file_name="sample_tracks.pdf", max_tracks=12, min_track_len=11):
 
         def linear_fn(x, a):
             return 4 * a * x
@@ -641,6 +713,89 @@ class msd_diffusion:
         #     ax.set(xlabel='x', ylabel='y')
         # for ax in axs.flat:
         #     ax.label_outer()
+        plt.tight_layout()
+        plt.savefig(self.save_dir + '/' + file_name)
+        plt.clf()
+
+    def plot_sample_tracks(self, file_name="sample_tracks.pdf", max_tracks=12, min_track_len=11):
+
+        def linear_fn(x, a):
+            return 4 * a * x
+        linear_fn_v = np.vectorize(linear_fn)
+
+        def linear_fn2(x, a, b):
+            return 4*b*x**a
+        linear_fn_v2 = np.vectorize(linear_fn2)
+
+        track_ids = np.unique(self.tracks[:,self.tracks_id_col])
+        i=0
+        fig, axs = plt.subplots(max_tracks, 4,figsize=(20,max_tracks*4))
+
+        for id in track_ids:
+            cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
+
+            # cur_D_loglogfits = self.D_loglogfits[np.where(self.D_loglogfits[:, self.D_loglog_id_col] == id)]
+            # if (len(cur_D_loglogfits) > 0):
+            #     the_alpha = cur_D_loglogfits[0, self.D_loglog_alpha_col]
+            # else:
+            #     the_alpha = 0
+
+            if(len(cur_track)>min_track_len): #and int(id)==8267): #and int(id) in [5,13,14,39,291,550,970,1042,1203,1770,1784,1793,1794,]): #the_alpha > 2): #< 0.8): # > 2):
+                #plot
+                x_sub=np.min(cur_track[:,self.tracks_x_col]) * self.micron_per_px
+                y_sub = np.min(cur_track[:, self.tracks_y_col]) * self.micron_per_px
+
+                axs[i, 0].plot(cur_track[:,self.tracks_x_col] * self.micron_per_px-x_sub,cur_track[:,self.tracks_y_col] * self.micron_per_px-y_sub)
+                axs[i, 0].plot(cur_track[0,self.tracks_x_col] * self.micron_per_px-x_sub,cur_track[0,self.tracks_y_col] * self.micron_per_px-y_sub,'.',color='green')
+                axs[i, 0].plot(cur_track[-1, self.tracks_x_col] * self.micron_per_px-x_sub, cur_track[-1, self.tracks_y_col] * self.micron_per_px-y_sub, '.', color='red')
+                axs[i, 0].set_title(f"track: {id}")
+                if(len(self.r_of_g_full) > 0):
+                    cur_r_of_g = self.r_of_g_full[np.where(self.r_of_g_full[:, 0] == id)]
+                    axs[i, 1].plot(cur_r_of_g[1:, 1], cur_r_of_g[1:, 2])
+                    axs[i, 1].set_title("Rg(N)="+str(np.round(cur_r_of_g[-1, 2],2)))
+                    axs[i, 1].set_ylabel('Rg (microns)')
+
+                if(len(self.msd_tracks)>0):
+                    cur_msd = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_id_col] == id)]
+                    axs[i, 2].plot(cur_msd[1:self.tlag_cutoff_linfit+1,self.msd_t_col],
+                                   cur_msd[1:self.tlag_cutoff_linfit+1,self.msd_msd_col])
+
+                    if (len(self.D_linfits) > 0):
+                        cur_D_linfits = self.D_linfits[np.where(self.D_linfits[:, self.D_lin_id_col] == id)]
+                        if (len(cur_D_linfits) > 0):
+                            cur_D = cur_D_linfits[0, self.D_lin_D_col]
+                            cur_r2 = cur_D_linfits[0, self.D_lin_rsq_col]
+                            y_vals_from_fit = linear_fn_v(cur_msd[1:self.tlag_cutoff_linfit+1,self.msd_t_col], cur_D)
+                            axs[i, 2].plot(cur_msd[1:self.tlag_cutoff_linfit+1,self.msd_t_col], y_vals_from_fit, color='black')
+                            axs[i, 2].set_title(f"Deff={np.round(cur_D, 4)}, r2={np.round(cur_r2, 2)}")
+                            axs[i, 2].set_ylabel('MSD (microns^2)')
+
+                    if (len(self.D_loglogfits) > 0): # TODO try fitting with K-parameter but directly, not loglog and see if get same result
+                        cur_D_loglogfits = self.D_loglogfits[np.where(self.D_loglogfits[:, self.D_loglog_id_col] == id)]
+                        if (len(cur_D_loglogfits) > 0):
+                            axs[i, 3].plot(cur_msd[1:self.tlag_cutoff_loglogfit+1, self.msd_t_col],
+                                           cur_msd[1:self.tlag_cutoff_loglogfit+1, self.msd_msd_col])
+
+                            cur_K = cur_D_loglogfits[0, self.D_loglog_K_col]
+                            cur_alpha = cur_D_loglogfits[0, self.D_loglog_alpha_col]
+                            cur_r2 = cur_D_loglogfits[0, self.D_loglog_rsq_col]
+                            y_vals_from_fit = linear_fn_v2(cur_msd[1:self.tlag_cutoff_loglogfit+1,self.msd_t_col], cur_alpha,cur_K)
+                            axs[i, 3].plot(cur_msd[1:self.tlag_cutoff_loglogfit+1,self.msd_t_col], y_vals_from_fit, color='black')
+                            axs[i, 3].set_title(f"K={np.round(cur_K, 4)}, alpha={np.round(cur_alpha, 4)}, r2={np.round(cur_r2, 2)}")
+                            axs[i, 3].set_ylabel('MSD (microns^2)')
+
+                i += 1
+                if(i == max_tracks):
+                    axs[i-1, 1].set_xlabel('t (s)')
+                    axs[i-1, 2].set_xlabel('t-lag (s)')
+                    axs[i-1, 3].set_xlabel('t-lag (s)')
+                    break
+
+        # for ax in axs.flat:
+        #     ax.set(xlabel='x', ylabel='y')
+        # for ax in axs.flat:
+        #     ax.label_outer()
+
         plt.tight_layout()
         plt.savefig(self.save_dir + '/' + file_name)
         plt.clf()
@@ -805,345 +960,3 @@ class msd_diffusion:
         fig.tight_layout()
         fig.savefig(output_file, dpi=500)  # 1000
         plt.close(fig)
-
-
-    # def save_angle_autocorr(self, file_name="angles_autocorr.pdf"):
-    #     from statsmodels.graphics.tsaplots import plot_acf
-    #     from statsmodels.tsa.stattools import acf
-    #
-    #     mean_acf_y_vals=np.zeros(len(self.angles_tlag1[0]))
-    #     for i in range(len(self.angles_tlag1)):
-    #         mean_acf_y_vals += acf(self.angles_tlag1[i])
-    #     mean_acf_y_vals /= len(self.angles_tlag1)
-    #
-    #     plt.scatter(range(0, len(mean_acf_y_vals)), mean_acf_y_vals, marker='.', color="blue")
-    #     plt.bar(x=range(0,len(mean_acf_y_vals)), height=mean_acf_y_vals, width=0.05, color="black")
-    #     plt.plot([-0.5,len(mean_acf_y_vals)],[0,0],color='blue')
-    #     plt.xlim(-0.5,len(mean_acf_y_vals))
-    #     plt.ylim(-1,1.25)
-    #     plt.savefig(self.save_dir + '/' + file_name)
-    #     plt.clf()
-    #
-    #     # plot_acf(self.angles_tlag1[0])
-    #     # plt.savefig(self.save_dir + '/0_' + file_name)
-    #     # plt.clf()
-
-
-#
-# test1=False
-# test3=False
-#
-# from nd2reader import ND2Reader
-# def read_movie_metadata(file_name):
-#     try:
-#         with ND2Reader(file_name) as images:
-#             steps = images.timesteps[1:] - images.timesteps[:-1]
-#             steps = np.round(steps, 0)
-#             #convert steps from ms to s
-#             steps=steps/1000
-#             microns_per_pixel=images.metadata['pixel_microns']
-#             return (microns_per_pixel,steps)
-#     except FileNotFoundError as e:
-#         return None
-#
-# def filter_tracks(track_data, min_len, time_steps, min_resolution):
-#     correct_ts = np.min(time_steps)
-#     traj_ids = np.unique(track_data['Trajectory'])
-#     track_data_cp=track_data.copy()
-#     track_data_cp['Remove']=True
-#     for traj_id in traj_ids:
-#         cur_track = track_data[track_data['Trajectory']==traj_id].copy()
-#         if(len(cur_track) >= min_len):
-#             new_seg=True
-#             longest_seg_start = cur_track.index[0]
-#             longest_seg_len = 0
-#             for row_i, row in enumerate(cur_track.iterrows()):
-#                 if(row_i > 0):
-#                     if(new_seg):
-#                         cur_seg_start=row[0]-1
-#                         cur_seg_len=0
-#                         new_seg=False
-#
-#                     fr=row[1]['Frame']
-#                     cur_ts = time_steps[int(fr-1)]
-#                     if((cur_ts - correct_ts) <= min_resolution):
-#                         #keep going
-#                         cur_seg_len+=1
-#                     else:
-#                         if(cur_seg_len > longest_seg_len):
-#                             longest_seg_len=cur_seg_len
-#                             longest_seg_start = cur_seg_start
-#                             new_seg=True
-#             if(not new_seg):
-#                 if (cur_seg_len > longest_seg_len):
-#                     longest_seg_len = cur_seg_len
-#                     longest_seg_start = cur_seg_start
-#
-#             if(longest_seg_len >= min_len):
-#                 # add track segment to new DF - check # 10
-#                 track_data_cp.loc[longest_seg_start:longest_seg_start+longest_seg_len,'Remove']=False
-#
-#     track_data_cp = track_data_cp[track_data_cp['Remove']==False]
-#     track_data_cp.index=range(len(track_data_cp))
-#     track_data_cp = track_data_cp.drop('Remove', axis=1)
-#     return track_data_cp
-#
-# if(test3):
-#     dir_results = "/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/For MOISAIC analysis/testing_results"
-#     csv_file="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/For MOISAIC analysis/Traj_rim15 -C stavation 4h-1.nd2_crop.csv"
-#     movie_file="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/Ying GEM/rim15 -C stavation 4h-1.nd2"
-#
-#     ret = read_movie_metadata(movie_file)
-#
-#     track_data_df = pd.read_csv(csv_file)
-#     track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
-#
-#     if(len(np.unique(ret[1])) > 0):
-#         track_data_filtered = filter_tracks(track_data_df, 11, ret[1], 0.005)
-#         track_data_filtered.to_csv(dir_results + "/" + os.path.split(csv_file)[1][:-4] + "_filtered.csv")
-#         track_data = track_data_filtered.to_numpy()
-#     else:
-#         track_data = track_data_df.to_numpy()
-#
-#     msd_diff_obj = msd_diffusion()
-#     msd_diff_obj.save_dir = dir_results
-#
-#     print("Base time step:", np.min(ret[1]))
-#     print("Micron per pixel:", ret[0])
-#     msd_diff_obj.time_step = np.min(ret[1])
-#     msd_diff_obj.micron_per_px = ret[0]
-#
-#     msd_diff_obj.set_track_data(track_data)
-#     msd_diff_obj.step_sizes_and_angles()
-#
-#     msd_diff_obj.msd_all_tracks()
-#     msd_diff_obj.fit_msd()
-#
-#     msd_diff_obj.save_msd_data(file_name=os.path.split(csv_file)[1][:-4] + "_MSD.txt")
-#     df=msd_diff_obj.save_fit_data(file_name=os.path.split(csv_file)[1][:-4] + "_Dlin.txt")
-#     msd_diff_obj.save_step_sizes(file_name=os.path.split(csv_file)[1][:-4] + "_step_sizes.txt")
-#
-#     print(np.median(df['D']))
-#
-# if(test1):
-#     dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/GEMs/for_presentation"
-#
-#     #file_="Traj_GBC1_3W_0min_GEM_6_cyto.tif.csv"
-#     #suffix = '3W_0hr'  # med(D) = 0.54
-#     #ym = -1
-#
-#     #file_ = "Traj_GBC1_3W_5_hour_GEM_4_cyto.tif.csv"
-#     #suffix='3W_5hr' # med(D) = 0.04
-#     #ym = -1
-#
-#     file_="GBC1_4_cyto.csv"
-#     suffix = 'CTRL' # med(D) = 0.18
-#     ym = 0.4
-#
-#     track_data_df = pd.read_csv(dir_ + '/' + file_)
-#     track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
-#     track_data = track_data_df.to_numpy()
-#
-#     msd_diff = msd_diffusion()
-#     msd_diff.set_track_data(track_data)
-#     msd_diff.step_sizes_and_angles()
-#
-#     msd_diff.msd_all_tracks()
-#     msd_diff.fit_msd()
-#
-#     msd_diff.save_dir = dir_ + '/results_'+suffix
-#
-#     msd_diff.save_angles()
-#     msd_diff.save_step_sizes()
-#
-#     msd_diff.save_msd_data()
-#     df=msd_diff.save_fit_data()
-#     print(np.median(df['D']))
-#     msd_diff.save_track_length_hist()
-#     msd_diff.save_step_size_hist("step_sizes1.pdf",1)
-#
-#
-#     msd_diff.save_step_size_hist("step_sizes2.pdf", 2)
-#     msd_diff.save_step_size_hist("step_sizes3.pdf", 3)
-#     # msd_diff.save_step_size_hist("step_sizes4.pdf", 4)
-#     # msd_diff.save_step_size_hist("step_sizes5.pdf", 5)
-#
-#     #msd_diff.save_angle_hist("angles1.pdf", 1)
-#     #msd_diff.save_angle_hist("angles2.pdf", 2)
-#     #msd_diff.save_angle_hist("angles3.pdf", 3)
-#
-#     #msd_diff.save_angle_hist("angles4.pdf", 4)
-#     #msd_diff.save_angle_hist("angles5.pdf", 5)
-#
-#     msd_diff.plot_msd_curves(ymax=ym, max_tracks=30)
-#
-#     msd_diff.save_D_histogram("Deff.pdf")
-#
-import seaborn as sns
-from scipy.stats import kruskal
-test02=False
-test2=False
-if(test02):
-    dir_ = "/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/Trajectories"
-    file_name = "Traj_DMSO_AxonRight_2h_008.csv"
-    track_data_df = pd.read_csv(dir_ + '/' + file_name)
-    track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
-    track_data = track_data_df.to_numpy()
-
-    msd_diff = msd_diffusion()
-    msd_diff.micron_per_px = 0.16
-    msd_diff.time_step = 0.010
-    msd_diff.max_tlag_step_size = 10
-    msd_diff.set_track_data(track_data)
-    msd_diff.save_dir = dir_ + '/results'
-
-    msd_diff.step_sizes_and_angles()
-    msd_diff.non_gaussian_1d()
-
-    print(msd_diff.ngp)
-    print(msd_diff.kurt)
-
-    msd_diff.msd_all_tracks()
-    msd_diff.calculate_ensemble_average()
-    msd_diff.fit_msd()
-    msd_diff.fit_msd_alpha()
-
-    msd_diff.radius_of_gyration()
-    msd_diff.radius_of_gyration_full()
-    print(f"\nmedian radius of gyration: {np.round(np.median(msd_diff.r_of_g[:,1]),4)} microns")
-
-    msd_diff.plot_msd_curves(min_track_len=11, ymax=1.5, xmax=0.35, max_tracks=0, fit_line=True)
-    msd_diff.plot_sample_tracks()
-
-    msd_diff.fit_msd_ensemble()
-    print("\nEnsemble average:")
-    print(f"D: {msd_diff.ensemble_fit_D}")
-    print(f"r2: {msd_diff.ensemble_fit_rsq}")
-    print(f"RMSE: {msd_diff.ensemble_fit_rmse}")
-    #print(msd_diff.ensemble_fit_err)
-
-    print("\nAnomolous exponent:")
-    msd_diff.fit_msd_ensemble_alpha()
-    print(f"K: {msd_diff.anomolous_fit_K}")
-    print(f"a: {msd_diff.anomolous_fit_alpha}")
-    print(f"r2: {msd_diff.anomolous_fit_rsq}")
-    print(f"RMSE: {msd_diff.anomolous_fit_rmse}")
-    #print(msd_diff.anomolous_fit_errs)
-
-    msd_diff.plot_msd_ensemble(ymax=0.8, xmax=0.15, fit_line=True, file_name="msd_ensemble_cutoff.pdf")
-    msd_diff.plot_msd_ensemble(ymax=1.5, xmax=0.35, fit_line=True)
-
-    msd_diff.save_msd_data()
-    df = msd_diff.save_fit_data()
-
-    print("\nMedian and Mean Deff:")
-    print(np.median(df['D']))
-    print(np.mean(df['D']))
-
-    valid_fits = msd_diff.D_linfits[msd_diff.D_linfits[:, msd_diff.D_lin_rsq_col] >= 0.75]
-    print(f"Median Deff for fits with rsq >= 0.75: ({len(valid_fits)})")
-    print(np.median(valid_fits[:,msd_diff.D_lin_D_col]))
-
-    bad_fits = msd_diff.D_linfits[msd_diff.D_linfits[:, msd_diff.D_lin_rsq_col] < 0.75]
-    print(f"Median Deff for fits with rsq < 0.75: ({len(bad_fits)})")
-    print(np.median(bad_fits[:, msd_diff.D_lin_D_col]))
-
-
-
-if(test2):
-    #dir_="/Volumes/Seagate Backup Plus Drive/holtlab/data_and_results/tamas-20201218_HeLa_hPNE_nucPfV_NPM1_clones/tracks/"
-    #file_name='Traj_02_WT_hPNE_nucPfV_010_01.csv'
-
-    #dir_ = "/Users/sarahkeegan/Dropbox/mac_files/holtlab/code/GemsAnalyze/matlab scripts"
-    #file_name = 'test_data.csv'
-
-    dir_="/Users/sarahkeegan/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/Trajectories"
-
-    file_dict = {}
-    file_dict["Axon"] = ['Traj_DMSO_AxonRight_2h_008.csv','Traj_DMSO_AxonLeft_2h_013.csv','Traj_DMSO_AxonLeft_2h_012.csv']
-    file_dict["Soma"] = ['Traj_DMSO_Soma_2h_004.csv','Traj_DMSO_Soma_2h_003.csv','Traj_DMSO_Soma_2h_001.csv']
-    r_of_g_all=pd.DataFrame()
-    ngp_all = pd.DataFrame()
-    for group in ["Soma","Axon"]:
-        cur_files = file_dict[group]
-        displacements = {}
-        for file_name in cur_files:
-            track_data_df = pd.read_csv(dir_ + '/' + file_name)
-            track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
-            track_data = track_data_df.to_numpy()
-
-            msd_diff = msd_diffusion()
-            msd_diff.micron_per_px=0.16
-            msd_diff.time_step=0.010
-            msd_diff.max_tlag_step_size = 10
-            msd_diff.set_track_data(track_data)
-            msd_diff.save_dir = dir_ + '/results'
-
-            # (1) Radius of gyration
-            msd_diff.radius_of_gyration()
-            df = pd.DataFrame(msd_diff.r_of_g[:,1], columns=['Rg'])
-            df['type']=group
-            df['file_name']=file_name
-            r_of_g_all = pd.concat([r_of_g_all,df], ignore_index=True)
-
-            # (2) NGP: plot for increasing t-lag values
-            msd_diff.step_sizes_and_angles()
-            #msd_diff.non_gaussian_1d()
-
-            for i in range(len(msd_diff.deltaX)):
-                cur_arrX = msd_diff.deltaX[i, :][np.logical_not(np.isnan(msd_diff.deltaX[i, :]))]
-                cur_arrY = msd_diff.deltaY[i, :][np.logical_not(np.isnan(msd_diff.deltaY[i, :]))]
-                cur_arr = np.concatenate((cur_arrX,cur_arrY))
-                if(not i in displacements):
-                    displacements[i]=[]
-                displacements[i].extend(cur_arr)
-
-        max_tlag = max(displacements.keys())
-        ngp=[]
-        for i in range(max_tlag+1):
-            cur_arr=np.asarray(displacements[i])
-            ngp_val = (np.mean(cur_arr**4) / (3 * np.mean(cur_arr**2) ** 2)) - 1
-            ngp.append([group, (i + 1) * msd_diff.time_step*1000, ngp_val])
-
-            #plot distribution of displacements when i == 0
-            if(i==0):
-                #cur_arr=np.abs(cur_arr)
-                plt.hist(cur_arr,bins=np.arange(np.min(cur_arr),np.max(cur_arr),0.05),) #density=True)
-                plt.savefig(dir_ + f"/displ_distr_{group}.pdf")
-                plt.title(f"NGP={np.round(ngp_val,2)}")
-                plt.clf()
-        df=pd.DataFrame(ngp, columns=['type','tlag','NGP'])
-        ngp_all = pd.concat([ngp_all,df], ignore_index=True)
-
-
-    ax=sns.violinplot(x='type',y='Rg', data=r_of_g_all)
-    plt.savefig(dir_ + "/Rg_comparison.pdf")
-    plt.clf()
-
-    Rg1 = r_of_g_all[r_of_g_all['type'] == 'Axon']['Rg']
-    Rg2 = r_of_g_all[r_of_g_all['type'] == 'Soma']['Rg']
-    stat, pval = kruskal(Rg1,Rg2)
-    print(pval)
-    print(np.median(Rg1))
-    print(np.median(Rg2))
-
-    sns.lineplot(
-        data=ngp_all,
-        x="tlag", y="NGP", hue="type", style="type",
-        markers=True, dashes=False
-    )
-    plt.savefig(dir_ + "/NGP_comparison.pdf")
-    plt.clf()
-
-    print("")
-
-
-
-
-
-
-
-
-
-
-
