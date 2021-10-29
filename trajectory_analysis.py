@@ -44,16 +44,21 @@ def limit_tracks_given_mask(mask_image, track_data):
     # 0: id, 1: label, 2: 0/1 inside an ROI
     id = track_data[0][0]
     prev_pos = 0
+    out_of_bounds=False
     for pos_i, pos in enumerate(track_data):
         if (pos[0] != id):
             if ((len(np.unique(track_labels_full[prev_pos:pos_i, 1])) == 1) and (track_labels_full[pos_i - 1][1] != 0)):
                 valid_id_list.append(id)
             id = pos[0]
             prev_pos = pos_i
-
-        label = mask_image[int(pos[3])][int(pos[2])]
-        track_labels_full[pos_i][0] = pos[0]
-        track_labels_full[pos_i][1] = label
+        if(pos[3]>=len(mask_image) or pos[2] >= len(mask_image[1])):
+            #IndexError
+            label=-1
+            out_of_bounds=True
+        else:
+            label = mask_image[int(pos[3])][int(pos[2])]
+            track_labels_full[pos_i][0] = pos[0]
+            track_labels_full[pos_i][1] = label
 
     # check final track
     pos_i = pos_i + 1
@@ -61,7 +66,7 @@ def limit_tracks_given_mask(mask_image, track_data):
         valid_id_list.append(id)
 
     valid_id_list = np.asarray(valid_id_list)
-    return valid_id_list
+    return (valid_id_list, out_of_bounds)
 
 def make_mask_from_roi(rois, roi_name, img_shape):
     # loop through ROIs, only set interior of selected ROI to 1
@@ -714,17 +719,35 @@ class trajectory_analysis:
         fig3.clf()
         plt.close(fig3)
 
-    def make_by_cell_plot(self, label, label_order):
+    def make_by_cell_plot(self, label, label_order, show_legend=True, roi_matching='order'):
         #group is on the x-axis
         #separate plot for each combination of labels from all other columns
         #data is read in from msd/diff in the saved files
+        # if 'roi' is a column, also sepearte by 'roi': match ROIs by ORDER or NAME
+        # roi_matching == 'order' OR 'name'
 
         self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt",index_col=0,sep='\t')
+
+        if('roi' in self.data_list_with_results_full.columns):
+            hue_var='cell_roi'
+            self.data_list_with_results_full['cell_roi']=''
+            if(roi_matching=='order'):
+                self.data_list_with_results_full['img_group']=self.data_list_with_results_full['group'].astype('str') + '_' + self.data_list_with_results_full['cell'].astype('str')
+                for img_group in np.unique(self.data_list_with_results_full['img_group']):
+                    cur_data=self.data_list_with_results_full[self.data_list_with_results_full['img_group']==img_group]
+                    min_id = np.unique(cur_data['id']).min()
+                    self.data_list_with_results_full['cell_roi']=np.where(self.data_list_with_results_full['img_group']==img_group,
+                        self.data_list_with_results_full['cell'].astype('str') + '_' + (self.data_list_with_results_full['id']-min_id+1).astype('str'),
+                        self.data_list_with_results_full['cell_roi'])
+            else:
+                pass
+        else:
+            hue_var='cell'
 
         label_columns = self.label_columns[:]
         label_columns.remove(label)
         if (len(label_columns) > 0):
-            grouped_data_list = self.data_list.groupby(label_columns)
+            grouped_data_list = self.data_list_with_results_full.groupby(label_columns) # self.data_list
             groups = list(grouped_data_list.groups.keys())
         else:
             groups = []
@@ -742,18 +765,21 @@ class trajectory_analysis:
                 fig = plt.figure()
                 ax = fig.add_subplot(1, 1, 1)
                 group_df = grouped_data_list.get_group(group)
-                id_list = group_df.index
+                id_list = group_df.id
                 cur_data=self.data_list_with_results_full[self.data_list_with_results_full.id.isin(id_list)].copy()
 
                 cur_data[label + '_tonum'] = -1
                 for order_i, order_label in enumerate(label_order):
                     cur_data[label + '_tonum'] = np.where(cur_data[label].astype('str') == str(order_label), order_i,
                                                           cur_data[label + '_tonum'])
-                cur_data['cell'] = "cell " + cur_data['cell'].astype('str')
+                cur_data[hue_var] = "cell " + cur_data[hue_var].astype('str')
 
-                sns.lineplot(x=label+'_tonum', y="D", data=cur_data, hue="cell", estimator=np.median, ax=ax)
+                sns.lineplot(x=label+'_tonum', y="D", data=cur_data, hue=hue_var, estimator=np.median, ci=None, ax=ax)
 
-                self.sort_legend(ax)
+                if(show_legend):
+                    self.sort_legend(ax)
+                else:
+                    ax.get_legend().remove()
 
                 ax.set_xticks(range(len(label_order)))
                 ax.set_xticklabels(label_order)
@@ -772,7 +798,7 @@ class trajectory_analysis:
             for order_i, order_label in enumerate(label_order):
                 cur_data[label + '_tonum'] = np.where(cur_data[label].astype('str') == str(order_label), order_i,
                                                       cur_data[label + '_tonum'])
-            cur_data['cell']="cell "+cur_data['cell'].astype('str')
+            cur_data[hue_var]="cell "+cur_data[hue_var].astype('str')
 
             sns.lineplot(x=label + '_tonum', y="D", data=cur_data, hue="cell", estimator=np.median, ax=ax)
 
@@ -831,7 +857,7 @@ class trajectory_analysis:
                         if(mo):
                             cell=mo.group(1)
                         else:
-                            print("Error could not location cell name in file name.")
+                            print("Error could not locate cell name in file name.")
                             cell="?"
 
                     cur_medians.append([row_i,np.median(to_plot),cell])
@@ -1162,7 +1188,11 @@ class trajectory_analysis:
                     err = True
             if (not err):
                 # limit the tracks to the ROI - returns track ids that are fully within mask
-                valid_id_list = limit_tracks_given_mask(mask, df.to_numpy())
+                valid_id_list,err = limit_tracks_given_mask(mask, df.to_numpy())
+                if(err):
+                    self.log.write(f"Error!  Track positions are outside of TIF image bounds: {self.valid_img_files[index]}\n")
+                    self.log.write(f"Check that the correct trajectory CSV file is associated with this ROI/TIF file.\n")
+                    self.log.flush()
                 df = df[df['Trajectory'].isin(valid_id_list)]
                 roi_area=np.sum(mask.flatten())
         else:
@@ -1454,7 +1484,7 @@ class trajectory_analysis:
         full_results1['group']=''
         full_results1['group_readable']=''
         full_results2_cols1=['D_median','D_mean','D_median_filt','D_mean_filt']
-        full_results2_cols2=['D','err','r_sq','rmse','track_len','D_max_tlag']
+        full_results2_cols2=['Trajectory','D','err','r_sq','rmse','track_len','D_max_tlag']
         cols_len=len(full_results2_cols1) + len(full_results2_cols2)
         full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2)
         self.data_list_with_results_full = pd.concat([full_results1,full_results2], axis=1)
@@ -1648,7 +1678,7 @@ class trajectory_analysis:
                         D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
 
                     # Fill data array with eff-D
-                    cur_data = msd_diff_obj.D_linfits[:,1:] #don't need track id column
+                    cur_data = msd_diff_obj.D_linfits[:,:] #don't need track id column
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'id'] = index
                     for k in range(len(self.data_list.columns)):
                         self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),k+1]=self.data_list.loc[index][k]
