@@ -265,20 +265,23 @@ class msd_diffusion:
             else:
                 valid_track_ids = np.unique(self.tracks[:, self.tracks_id_col])
 
-            self.r_of_g = np.zeros((len(valid_track_ids), 2), )
-            i = 0
-            for id in valid_track_ids:
-                cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
-                if(len_cutoff > 1):
-                    n=len_cutoff
-                else:
-                    n=len(cur_track)
-                T = np.cov(cur_track[:n, self.tracks_x_col], cur_track[:n, self.tracks_y_col]) * (n - 1) / n  # np.cov divides by (n-1) but i want to divide by n
+            if(len(valid_track_ids)>0):
+                self.r_of_g = np.zeros((len(valid_track_ids), 2), )
+                i = 0
+                for id in valid_track_ids:
+                    cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
+                    if(len_cutoff > 1):
+                        n=len_cutoff
+                    else:
+                        n=len(cur_track)
+                    T = np.cov(cur_track[:n, self.tracks_x_col], cur_track[:n, self.tracks_y_col]) * (n - 1) / n  # np.cov divides by (n-1) but i want to divide by n
 
-                w, v = LA.eig(T)
-                self.r_of_g[i, 0] = id
-                self.r_of_g[i, 1] = np.sqrt(np.sum(w)) * self.micron_per_px  # eigenvalues (w) are squared radii of gyration
-                i += 1
+                    w, v = LA.eig(T)
+                    self.r_of_g[i, 0] = id
+                    self.r_of_g[i, 1] = np.sqrt(np.sum(w)) * self.micron_per_px  # eigenvalues (w) are squared radii of gyration
+                    i += 1
+            else:
+                self.r_of_g = np.asarray([])
         else:
             self.r_of_g=np.asarray([])
 
@@ -312,16 +315,15 @@ class msd_diffusion:
 
         # filter tracks by length
         valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_ensemble - 1))]
+        ensemble_average = []
+        if(len(valid_tracks)>0):
+            max_tlag=int(np.max(valid_tracks[:,self.msd_len_col]))
+            for tlag in range(1,max_tlag+1,1):
+                # gather all data for current tlag
+                tlag_time=tlag*self.time_step
+                cur_tlag_MSDs=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
 
-        max_tlag=int(np.max(valid_tracks[:,self.msd_len_col]))
-
-        ensemble_average=[]
-        for tlag in range(1,max_tlag+1,1):
-            # gather all data for current tlag
-            tlag_time=tlag*self.time_step
-            cur_tlag_MSDs=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
-
-            ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs)])
+                ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs)])
 
         self.ensemble_average=np.asarray(ensemble_average)
 
