@@ -1469,9 +1469,11 @@ class trajectory_analysis:
                 track_data = track_data.to_numpy()
                 if(len(track_data) == 0):
                     continue
+
                 #filter for tracks with min length (Diffusion data will only be returned for these tracks)
                 hist, bin_edges=np.histogram(track_data[:,0], bins=range(1,int(np.max(track_data[:,0])+2),1))
                 full_length += len(hist[hist >= self.min_track_len_linfit])
+
                 num_tracks=len(np.unique(track_data[:,0]))
                 if(num_tracks > max_num_tracks):
                     max_num_tracks=num_tracks
@@ -1483,19 +1485,19 @@ class trajectory_analysis:
         full_results1.insert(loc=0, column='id', value=0)
         full_results1['group']=''
         full_results1['group_readable']=''
-        full_results2_cols1=['D_median','D_mean','D_median_filt','D_mean_filt']
+        full_results2_cols1=['D_median','D_mean','D_median_filt','D_mean_filt','avg_velocity']
         full_results2_cols2=['Trajectory','D','err','r_sq','rmse','track_len','D_max_tlag']
         cols_len=len(full_results2_cols1) + len(full_results2_cols2)
         full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2)
         self.data_list_with_results_full = pd.concat([full_results1,full_results2], axis=1)
 
-        # make a dataframe for the radius of gyration and track length.  for each, the distribution will be output in a row
+        # make a dataframe for the radius of gyration, avg velocity, and track length.  for each, the distribution will be output in a row
         colnames = list(self.data_list.columns)
         endpos = len(colnames)
         rest_cols = np.asarray(range(max_num_tracks))
         rest_cols = rest_cols.astype('str')
         colnames.extend(rest_cols)
-        self.data_list_with_Rg = pd.DataFrame(np.empty((len(self.data_list)*2, len(self.data_list.columns) + max_num_tracks),
+        self.data_list_with_Rg = pd.DataFrame(np.empty((len(self.data_list)*3, len(self.data_list.columns) + max_num_tracks),
                                                        dtype=np.str), columns=colnames)
         self.data_list_with_Rg.insert(loc=0, column='id', value='')
         self.data_list_with_Rg.insert(loc=endpos + 1, column='group', value='')
@@ -1508,6 +1510,10 @@ class trajectory_analysis:
         self.data_list_with_results['D_mean']=0.0
         self.data_list_with_results['D_median_filtered'] = 0.0
         self.data_list_with_results['D_mean_filtered'] = 0.0
+        self.data_list_with_results['D_group_median'] = 0.0
+        self.data_list_with_results['D_group_mean'] = 0.0
+        self.data_list_with_results['D_group_std'] = 0.0
+        self.data_list_with_results['D_group_sem'] = 0.0
         self.data_list_with_results['num_tracks'] = 0
         self.data_list_with_results['num_tracks_D'] = 0
         self.data_list_with_results['area'] = ''
@@ -1544,9 +1550,11 @@ class trajectory_analysis:
                 files_group = group_df[group_df[self._file_col_name]==cur_file]
                 cur_fig=None
                 cur_fig_ss=None
+                cur_fig_time = None
                 #cur_fig_roi=None
                 cur_ax=None
                 cur_ax_ss=None
+                cur_ax_time = None
                 #cur_ax_roi=None
                 # set up the figure axes for making rainbow tracks
                 if (self.make_rainbow_tracks):
@@ -1566,6 +1574,12 @@ class trajectory_analysis:
                         cur_ax_ss = cur_fig_ss.add_subplot(1, 1, 1)
                         cur_ax_ss.axis("off")
                         cur_ax_ss.imshow(bk_img, cmap="gray")
+
+                        # plot figure to draw tracks by time with image in background
+                        cur_fig_time = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+                        cur_ax_time = cur_fig_time.add_subplot(1, 1, 1)
+                        cur_ax_time.axis("off")
+                        cur_ax_time.imshow(bk_img, cmap="gray")
 
                         # plot figure to draw tracks by roi with image in background
                         # cur_fig_roi = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
@@ -1640,6 +1654,7 @@ class trajectory_analysis:
                     msd_diff_obj.fit_msd_ensemble()
                     msd_diff_obj.fit_msd_ensemble_alpha()
                     msd_diff_obj.radius_of_gyration()
+                    msd_diff_obj.average_velocity()
 
                     # rainbow tracks
                     if(self.make_rainbow_tracks):
@@ -1650,6 +1665,10 @@ class trajectory_analysis:
                         if(cur_ax_ss != None):
                             msd_diff_obj.save_tracks_to_img_ss(cur_ax_ss, min_ss=self.min_ss_rainbow_tracks,
                                                            max_ss=self.max_ss_rainbow_tracks, lw=0.1)
+
+                        if (cur_ax_time != None):
+                            msd_diff_obj.save_tracks_to_img_time(cur_ax_time, lw=0.1)
+
                         # if (cur_ax_roi != None):
                         #     msd_diff_obj.save_tracks_to_img_clr(cur_ax_roi, lw=0.1, color=roi_colors[count])
                         #     count += 1
@@ -1678,7 +1697,7 @@ class trajectory_analysis:
                         D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
 
                     # Fill data array with eff-D
-                    cur_data = msd_diff_obj.D_linfits[:,:] #don't need track id column
+                    cur_data = msd_diff_obj.D_linfits[:,:]
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'id'] = index
                     for k in range(len(self.data_list.columns)):
                         self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),k+1]=self.data_list.loc[index][k]
@@ -1688,19 +1707,26 @@ class trajectory_analysis:
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean']=D_mean
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median_filt']=D_median_filt
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean_filt']=D_mean_filt
+
+                    # output avg_velocity but only for the tracks were used in Deff calculation
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_velocity'] = (
+                        msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0], msd_diff_obj.D_linfits[:,0])][:,1])
+
                     next_col = len(full_results1.columns) + len(full_results2_cols1)
                     self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),next_col:next_col+len(cur_data[0])]=cur_data
 
                     # fill Rg data and track len data
-                    self.data_list_with_Rg.loc[Rg_i:Rg_i+1, 'id'] = index
+                    self.data_list_with_Rg.loc[Rg_i:Rg_i+2, 'id'] = index
                     for k in range(len(self.data_list.columns)):
-                        self.data_list_with_Rg.iloc[Rg_i:Rg_i+2, k + 1] = self.data_list.loc[index][k]
-                    self.data_list_with_Rg.loc[Rg_i:Rg_i+1,'group'] = file_str
-                    self.data_list_with_Rg.loc[Rg_i:Rg_i+1,'group_readable'] = group_readable
+                        self.data_list_with_Rg.iloc[Rg_i:Rg_i+3, k + 1] = self.data_list.loc[index][k]
+                    self.data_list_with_Rg.loc[Rg_i:Rg_i+2,'group'] = file_str
+                    self.data_list_with_Rg.loc[Rg_i:Rg_i+2,'group_readable'] = group_readable
                     self.data_list_with_Rg.loc[Rg_i,'data'] = 'track_len'
                     self.data_list_with_Rg.loc[Rg_i+1,'data'] = 'Rg'
+                    self.data_list_with_Rg.loc[Rg_i+2, 'data'] = 'avg_velocity'
                     self.data_list_with_Rg.loc[Rg_i, "0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.track_lengths[:,1]
                     self.data_list_with_Rg.loc[Rg_i+1,"0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.r_of_g[:,1]
+                    self.data_list_with_Rg.loc[Rg_i+2,"0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.avg_velocity[:,1]
 
                     # fill summary data array
                     self.data_list_with_results.at[index, 'D_median'] = D_median
@@ -1723,7 +1749,7 @@ class trajectory_analysis:
                         msd_diff_obj.save_fit_data(file_name=file_str + '_' + str(index) + "_Dlin.txt")
 
                     full_data_i += len(cur_data)
-                    Rg_i += 2
+                    Rg_i += 3
                     self.log.write("Processed "+str(index) +" "+cur_file+" for MSD and Diffusion coeff.\n")
                     self.log.flush()
 
@@ -1740,6 +1766,11 @@ class trajectory_analysis:
                     cur_fig_ss.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
                     plt.close(cur_fig_ss)
 
+                    cur_fig_time.tight_layout()
+                    out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_time.tif'
+                    cur_fig_time.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
+                    plt.close(cur_fig_time)
+
                     # cur_fig_roi.tight_layout()
                     # out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_roi.tif'
                     # cur_fig_roi.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
@@ -1755,7 +1786,24 @@ class trajectory_analysis:
 
         # TODO navigate through the groups, calculating med(D) for each group
         # add to the summary data
-        pass
+        for cur_group in np.unique(self.data_list_with_results['group']):
+            cur_group_data=self.data_list_with_results_full[self.data_list_with_results_full['group']==cur_group]['D']
+            self.data_list_with_results['D_group_median']=np.where(
+                self.data_list_with_results['group']==cur_group, np.median(cur_group_data),
+                self.data_list_with_results['D_group_median'])
+
+            self.data_list_with_results['D_group_mean'] = np.where(
+                self.data_list_with_results['group'] == cur_group, np.mean(cur_group_data),
+                self.data_list_with_results['D_group_mean'])
+
+            self.data_list_with_results['D_group_std'] = np.where(
+                self.data_list_with_results['group'] == cur_group, np.std(cur_group_data),
+                self.data_list_with_results['D_group_std'])
+
+            self.data_list_with_results['D_group_sem'] = np.where(
+                self.data_list_with_results['group'] == cur_group, np.std(cur_group_data)/np.sqrt(len(cur_group_data)),
+                self.data_list_with_results['D_group_sem'])
+
 
         self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
 

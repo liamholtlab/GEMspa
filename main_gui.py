@@ -8,7 +8,7 @@ import re
 
 class ConditionsDialog(wx.Dialog):
     def __init__(self):
-        super().__init__(parent=None, title='Experiment Conditions', size=(800, 800))
+        super().__init__(parent=None, title='Experiment Conditions', size=(600, 600))
         panel = wx.Panel(self)
 
         wx.StaticText(panel, label="List Conditions (condition-name: cond-1,cond-2,...), one per line:", pos=(10, 25))
@@ -40,19 +40,19 @@ class ConditionsDialog(wx.Dialog):
 
 class RunDialog(wx.Dialog):
     def __init__(self, default_dir, default_filepath):
-        super().__init__(parent=None, title='Run GEM Analysis', size=(800, 1000))
+        super().__init__(parent=None, title='Run GEM Analysis', size=(750, 750))
         panel = wx.Panel(self)
 
-        wx.StaticText(panel, label="Enter directory to save the results:", pos=(10, 25))
+        wx.StaticText(panel, label="Enter directory to save the results:", pos=(10, 15))
         self.chosen_dir=wx.DirPickerCtrl(panel, path=default_dir, message="Directory to save results",
-                                         pos=(10, 50), size=(500,20))
+                                         pos=(10, 35), size=(500,20))
 
-        wx.StaticText(panel, label="Enter filename for input file:", pos=(10, 100))
+        wx.StaticText(panel, label="Enter filename for input file:", pos=(10, 75))
         self.chosen_file = wx.FilePickerCtrl(panel, path=default_filepath, message="Input file for analysis (txt)",
-                                             wildcard="txt files (*.txt)|*.txt", size=(500, 20), pos=(10, 125))
+                                             wildcard="txt files (*.txt)|*.txt", size=(500, 20), pos=(10, 95))
 
-        start_y=200
-        spacing=35
+        start_y=135
+        spacing=30
         params_list = ['Time between frames (s):', 'Scale (microns per px):',
                        'Min. track length (effective Diff):', 'Max t-lag (effective Diff):',
                        'Min. track length (ensemble average):', 'Max t-lag (ensemble average, anomalous exp)',
@@ -66,14 +66,14 @@ class RunDialog(wx.Dialog):
             wx.StaticText(panel, label=param, pos=(10,start_y+i*spacing))
             self.text_ctrl_run_params.append(wx.TextCtrl(panel, id=wx.ID_ANY, value=str(default_values[i]), pos=(300, start_y+i*spacing)))
 
-        next_start=start_y+(i+1)*spacing+25
+        next_start=start_y+(i+1)*spacing+10
         self.read_movie_metadata_chk = wx.CheckBox(panel, label="Use movie files to read scale/time-step", pos=(10, next_start))
-        self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+35))
-        self.draw_rainbow_tracks_chk = wx.CheckBox(panel, label="Draw rainbow tracks on image files", pos=(10, next_start+70))
-        self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI files to filter tracks", pos=(10, next_start + 105))
+        self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+spacing))
+        self.draw_rainbow_tracks_chk = wx.CheckBox(panel, label="Draw rainbow tracks on image files", pos=(10, next_start+spacing*2))
+        self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI files to filter tracks", pos=(10, next_start+spacing*3))
 
-        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(10, next_start+140))
-        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(150, next_start+140))
+        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(10, next_start+spacing*3+spacing+10))
+        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(150, next_start+spacing*3+spacing+10))
 
     def get_save_dir(self):
         return self.chosen_dir.GetPath()
@@ -125,7 +125,7 @@ class RunDialog(wx.Dialog):
 class GEMSAnalyzerMainFrame(wx.Frame):
 
     def __init__(self):
-        super().__init__(None, -1, 'GEMspa', size=(1200,800))
+        super().__init__(None, -1, 'GEMspa', size=(1000,750))
         self.statusbar =self.CreateStatusBar()
         self.statusbar.SetStatusText('Welcome!')
         self.create_menu()

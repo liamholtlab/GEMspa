@@ -93,6 +93,7 @@ class msd_diffusion:
         self.D_linfits = np.asarray([])
         self.D_loglogfits = np.asarray([])
         self.r_of_g = np.asarray([])
+        self.avg_velocity = np.asarray([])
         self.r_of_g_full = np.asarray([])
         self.ngp = np.asarray([])
         self.kurt = np.asarray([])
@@ -101,6 +102,10 @@ class msd_diffusion:
         self.fill_track_lengths()
         self.fill_track_sizes()
 
+    def vel_2d(self, x, y):
+        dists = np.sqrt(np.square(x[1:] - x[:-1]) + np.square(y[1:] - y[:-1]))
+        vels=dists/self.time_step
+        return np.mean(vels)
 
     def msd2d(self, x, y):
 
@@ -252,6 +257,35 @@ class msd_diffusion:
                     i+=1
         else:
             self.r_of_g_full=np.asarray([])
+
+    def average_velocity(self, len_cutoff=0):
+        # for each track, calculate average velocity
+        # if len_cutoff > 1, then velocity will be calculated only for tracks >= len_cutoff
+        # otherwise, will be calculated for all tracks
+
+        if(len(self.tracks)>0):
+            if(len_cutoff>1):
+                valid_track_ids = self.track_lengths[np.where(self.track_lengths[:, 1] >= len_cutoff)][:,0]
+            else:
+                valid_track_ids = np.unique(self.tracks[:, self.tracks_id_col])
+
+            if(len(valid_track_ids)>0):
+                self.avg_velocity = np.zeros((len(valid_track_ids), 2), )
+                i = 0
+                for id in valid_track_ids:
+                    cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
+
+                    cur_avg = self.vel_2d(cur_track[:, self.tracks_x_col] * self.micron_per_px,
+                                          cur_track[:, self.tracks_y_col] * self.micron_per_px)
+
+                    self.avg_velocity[i, 0] = id
+                    self.avg_velocity[i, 1] = cur_avg
+
+                    i += 1
+            else:
+                self.avg_velocity = np.asarray([])
+        else:
+            self.avg_velocity=np.asarray([])
 
     def radius_of_gyration(self, len_cutoff=0):
         # for each track, do r. of g. calculation (calculated only for a single length)
@@ -894,6 +928,33 @@ class msd_diffusion:
                             [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
                             '-', color=cm.jet(show_color), linewidth=lw)
 
+    def save_tracks_to_img_time(self, ax, lw=0.1):
+    # coloring based on frame number of each track over time
+    # uses min track len step size to limit tracks
+
+        # first, get the min frame and max frame over all tracks that we will plot
+        ids=self.track_lengths[self.track_lengths[:,1]>=self.min_track_len_step_size][:,0]
+        valid_tracks = self.tracks[np.isin(self.tracks[:,self.tracks_id_col], ids)]
+        min_frame=valid_tracks[:,self.tracks_frame_col].min()
+        max_frame=valid_tracks[:,self.tracks_frame_col].max()
+        #ids = np.unique(self.tracks[:, self.tracks_id_col])
+        for id in ids:
+            cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
+            #if (len(cur_track) >= self.min_track_len_step_size):
+            for step_i in range(1,len(cur_track),1):
+                cur_frame=cur_track[step_i,self.tracks_frame_col]
+                if (cur_frame < min_frame):
+                    cur_frame = min_frame
+                if (cur_frame > max_frame):
+                    cur_frame = max_frame
+
+                show_color=cur_frame/max_frame
+
+                ax.plot([cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
+                        [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
+                        '-', color=cm.jet(show_color), linewidth=lw)
+
+
     def save_tracks_to_img_clr(self, ax, lw=0.1, color='blue'):
         ids = np.unique(self.tracks[:, self.tracks_id_col])
         for id in ids:
@@ -962,3 +1023,4 @@ class msd_diffusion:
         fig.tight_layout()
         fig.savefig(output_file, dpi=500)  # 1000
         plt.close(fig)
+
