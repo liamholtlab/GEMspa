@@ -512,8 +512,9 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     # run the analysis
                     #def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
                     #             make_rainbow_tracks=True, limit_to_ROIs=False, img_file_prefix='DNA_', log_file=''):
-                    traj_an = tja.trajectory_analysis(input_file, save_results_dir, read_movie_metadata, uneven_time_steps,
-                                                      rainbow_tracks, limit_with_rois, dlg.get_prefix_for_image_name())
+                    traj_an = tja.trajectory_analysis(input_file, results_dir=save_results_dir, use_movie_metadata=read_movie_metadata,
+                                                      uneven_time_steps=uneven_time_steps, make_rainbow_tracks=rainbow_tracks,
+                                                      limit_to_ROIs=limit_with_rois, img_file_prefix=dlg.get_prefix_for_image_name())
 
                     traj_an.time_step = dlg.get_time_step()
                     traj_an.micron_per_px = dlg.get_micron_per_px()

@@ -176,12 +176,15 @@ def filter_tracks(track_data, min_len, time_steps, min_resolution):
 
 class trajectory_analysis:
     def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
-                 make_rainbow_tracks=True, limit_to_ROIs=False, img_file_prefix='DNA_', log_file=''):
+                 make_rainbow_tracks=True, limit_to_ROIs=False, save_filtered_traj=False, img_file_prefix='DNA_',
+                 log_file=''):
 
         self.get_calibration_from_metadata=use_movie_metadata
         self.uneven_time_steps = uneven_time_steps
         self.make_rainbow_tracks = make_rainbow_tracks
         self.limit_to_ROIs = limit_to_ROIs
+
+        self.output_filtered_tracks=save_filtered_traj
 
         self.calibration_from_metadata={}
         self.valid_img_files = {}
@@ -266,7 +269,7 @@ class trajectory_analysis:
                 col_names.remove(col)
             else:
                 if( (col != self._movie_file_col_name and col != self._img_file_col_name) or
-                (col == self._movie_file_col_name and self.get_calibration_from_metadata) or
+                (col == self._movie_file_col_name and (self.get_calibration_from_metadata or self.uneven_time_steps)) or
                 (col == self._img_file_col_name and (self.make_rainbow_tracks or self.limit_to_ROIs)) ):
                     self.log.write(f"Error! Required column {col} not found in input file {self.data_file}\n")
                     self.error_in_data_file=True
@@ -275,7 +278,7 @@ class trajectory_analysis:
         # read in the time step information from the movie files
         if(not self.error_in_data_file):
 
-            if(self.get_calibration_from_metadata):
+            if(self.get_calibration_from_metadata or self.uneven_time_steps):
                 self.data_list[self._movie_file_col_name] = self.data_list[self._movie_file_col_name].fillna('')
 
             if(self.make_rainbow_tracks or self.limit_to_ROIs):
@@ -357,7 +360,7 @@ class trajectory_analysis:
                             self.valid_img_files[ind] = ''
                             self.log.write(f"Error! Image file not found: {img_file} for rainbow tracks/ROIs.\n")
 
-            if(self.get_calibration_from_metadata):
+            if(self.get_calibration_from_metadata or self.uneven_time_steps):
                 for row in self.data_list.iterrows():
                     ind = row[1][self._index_col_name]
                     csv_file = row[1][self._file_col_name]
@@ -417,6 +420,7 @@ class trajectory_analysis:
         self.log.write(f"Filter with ROI file: {self.limit_to_ROIs}\n")
         self.log.write(f"Read calibration from metadata: {self.get_calibration_from_metadata}\n")
         self.log.write(f"Filter for uneven time steps: {self.uneven_time_steps}\n")
+        self.log.write(f"Save filtered trajectory files: {self.output_filtered_tracks}\n")
         self.log.write(f"Min time step resolution: {self.ts_resolution}\n")
         self.log.write(f"Time between frames (s): {self.time_step}\n")
         self.log.write(f"Scale (microns per px): {self.micron_per_px}\n")
@@ -1330,7 +1334,7 @@ class trajectory_analysis:
                         continue
 
                 #check if we need to set the calibration for this file
-                if(self.get_calibration_from_metadata):
+                if(self.get_calibration_from_metadata or self.uneven_time_steps):
 
                     if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
                         m_px=self.calibration_from_metadata[index][0]
@@ -1343,16 +1347,17 @@ class trajectory_analysis:
                             msd_diff_obj.time_step=exposure
 
                         # if we have varying step sizes, must filter tracks
-                        if (len(np.unique(step_sizes)) > 0):  ## TODO fix this so it checks whether the largest diff. is > mindiff
-                            track_data_df = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution)
-                            # save the new, filtered CSVs
-                            track_data_df.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv")
+                        if(self.uneven_time_steps):
+                            if (len(np.unique(step_sizes)) > 0):  ## TODO fix this so it checks whether the largest diff. is > mindiff
+                                track_data_df = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution)
+                                # save the new, filtered CSVs
+                                track_data_df.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv")
 
-                            if (len(track_data_df) == 0):
-                                self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
-                                self.log.flush()
-                                self.set_rows_to_none_ss(index, '', self.max_tlag_step_size + 1, file_str, group_readable)
-                                continue
+                                if (len(track_data_df) == 0):
+                                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
+                                    self.log.flush()
+                                    self.set_rows_to_none_ss(index, '', self.max_tlag_step_size + 1, file_str, group_readable)
+                                    continue
 
                 track_data = track_data_df.to_numpy()
 
@@ -1423,7 +1428,7 @@ class trajectory_analysis:
         self.data_list_with_step_sizes.to_csv(self.results_dir + '/' + "summary_step_sizes.txt", sep='\t')
         self.data_list_with_NGP.to_csv(self.results_dir + '/' + "NGP.txt", sep='\t')
 
-        if ((self.get_calibration_from_metadata or self.limit_to_ROIs)):
+        if (self.uneven_time_steps or self.limit_to_ROIs):
             self.data_list_with_step_sizes_full=self.data_list_with_step_sizes_full.replace('', np.NaN)
             self.data_list_with_step_sizes_full.dropna(axis=1,how='all',inplace=True)
             self.data_list_with_step_sizes_full.dropna(axis=0,subset=['id',],inplace=True)
@@ -1616,7 +1621,7 @@ class trajectory_analysis:
                             continue
 
                     # check if we need to set the calibration for this file
-                    if (self.get_calibration_from_metadata):
+                    if (self.get_calibration_from_metadata or self.uneven_time_steps):
                         if(index in self.calibration_from_metadata and self.calibration_from_metadata[index] != ''):
                             m_px = self.calibration_from_metadata[index][0]
                             exposure = self.calibration_from_metadata[index][1]
@@ -1629,16 +1634,17 @@ class trajectory_analysis:
                                 msd_diff_obj.time_step = exposure
 
                             #if we have varying step sizes, must filter tracks
-                            if (len(np.unique(step_sizes)) > 0):   ## TODO fix this so it checks whether the largest diff. is > mindiff
-                                track_data_df = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution) #0.005)
-                                #save the new, filtered CSVs
-                                track_data_df.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv")
+                            if (self.uneven_time_steps):
+                                if (len(np.unique(step_sizes)) > 0):   ## TODO fix this so it checks whether the largest diff. is > mindiff
+                                    track_data_df = filter_tracks(track_data_df, self.min_track_len_linfit, step_sizes, self.ts_resolution) #0.005)
+                                    #save the new, filtered CSVs
+                                    track_data_df.to_csv(self.results_dir + '/' + cur_file[:-4] + "_filtered.csv")
 
-                                if (len(track_data_df) == 0):
-                                    self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
-                                    self.log.flush()
-                                    self.set_rows_to_none(index, '', 0, file_str, group_readable)
-                                    continue
+                                    if (len(track_data_df) == 0):
+                                        self.log.write("Note!  File '" + cur_dir + "/" + cur_file + "' contains 0 tracks after time step filtering.\n")
+                                        self.log.flush()
+                                        self.set_rows_to_none(index, '', 0, file_str, group_readable)
+                                        continue
 
                     track_data=track_data_df.to_numpy()
 
@@ -1647,6 +1653,18 @@ class trajectory_analysis:
                         roi_area = roi_area * msd_diff_obj.micron_per_px
 
                     #for this movie, calculate msd and diffusion for each track
+                    if(self.output_filtered_tracks and (self.limit_to_ROIs or self.uneven_time_steps)):
+                        #track data was filtered
+                        #  output the track data to a file - label with csv file name and roi if present
+                        if (self.limit_to_ROIs and data[self._roi_col_name]):
+                            file_name_to_save = cur_file[:-4] + '_' + data[self._roi_col_name] + "-filtered.csv"
+                        else:
+                            file_name_to_save = cur_file[:-4] + "-filtered.csv"
+
+                        track_data_new_df=pd.DataFrame(track_data, columns=['Trajectory','Frame','x','y'])
+                        track_data_new_df.sort_index(inplace=True) # I dont think this is needed...
+                        track_data_new_df.to_csv(self.results_dir + '/' + file_name_to_save, index=False)
+
                     msd_diff_obj.set_track_data(track_data)
                     msd_diff_obj.msd_all_tracks()
                     msd_diff_obj.fit_msd()
@@ -1776,7 +1794,7 @@ class trajectory_analysis:
                     # cur_fig_roi.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
                     # plt.close(cur_fig_roi)
 
-        if((self.get_calibration_from_metadata or self.limit_to_ROIs) and full_length > full_data_i):
+        if((self.uneven_time_steps or self.limit_to_ROIs) and full_length > full_data_i):
             #need to remove the extra rows of the df b/c some tracks were filtered
             to_drop = range(full_data_i,full_length,1)
             self.data_list_with_results_full.drop(to_drop, axis=0, inplace=True)
