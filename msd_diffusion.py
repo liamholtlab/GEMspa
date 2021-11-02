@@ -931,28 +931,29 @@ class msd_diffusion:
     def save_tracks_to_img_time(self, ax, lw=0.1):
     # coloring based on frame number of each track over time
     # uses min track len step size to limit tracks
+        if(len(self.track_lengths)>0):
+            # first, get the min frame and max frame over all tracks that we will plot
+            ids=self.track_lengths[self.track_lengths[:,1]>=self.min_track_len_step_size][:,0]
+            if(len(ids)>0):
+                valid_tracks = self.tracks[np.isin(self.tracks[:,self.tracks_id_col], ids)]
+                min_frame=valid_tracks[:,self.tracks_frame_col].min()
+                max_frame=valid_tracks[:,self.tracks_frame_col].max()
+                #ids = np.unique(self.tracks[:, self.tracks_id_col])
+                for id in ids:
+                    cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
+                    #if (len(cur_track) >= self.min_track_len_step_size):
+                    for step_i in range(1,len(cur_track),1):
+                        cur_frame=cur_track[step_i,self.tracks_frame_col]
+                        if (cur_frame < min_frame):
+                            cur_frame = min_frame
+                        if (cur_frame > max_frame):
+                            cur_frame = max_frame
 
-        # first, get the min frame and max frame over all tracks that we will plot
-        ids=self.track_lengths[self.track_lengths[:,1]>=self.min_track_len_step_size][:,0]
-        valid_tracks = self.tracks[np.isin(self.tracks[:,self.tracks_id_col], ids)]
-        min_frame=valid_tracks[:,self.tracks_frame_col].min()
-        max_frame=valid_tracks[:,self.tracks_frame_col].max()
-        #ids = np.unique(self.tracks[:, self.tracks_id_col])
-        for id in ids:
-            cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
-            #if (len(cur_track) >= self.min_track_len_step_size):
-            for step_i in range(1,len(cur_track),1):
-                cur_frame=cur_track[step_i,self.tracks_frame_col]
-                if (cur_frame < min_frame):
-                    cur_frame = min_frame
-                if (cur_frame > max_frame):
-                    cur_frame = max_frame
+                        show_color=cur_frame/max_frame
 
-                show_color=cur_frame/max_frame
-
-                ax.plot([cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
-                        [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
-                        '-', color=cm.jet(show_color), linewidth=lw)
+                        ax.plot([cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
+                                [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
+                                '-', color=cm.jet(show_color), linewidth=lw)
 
 
     def save_tracks_to_img_clr(self, ax, lw=0.1, color='blue'):
