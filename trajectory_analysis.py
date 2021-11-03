@@ -511,7 +511,7 @@ class trajectory_analysis:
             if(len(group_data)>=min_pts):
                 num_groups+=1
 
-        fig,axs = plt.subplots(1,2,figsize=(num_groups * 10, 10))
+        fig,axs = plt.subplots(1,num_groups,figsize=(num_groups * 10, 10))
         group_i=0
 
         xlim_min_all=0
@@ -1768,7 +1768,7 @@ class trajectory_analysis:
                         #track data was filtered
                         #  output the track data to a file - label with csv file name and roi if present
                         if (self.limit_to_ROIs and data[self._roi_col_name]):
-                            file_name_to_save = cur_file[:-4] + '_' + data[self._roi_col_name] + "-filtered.csv"
+                            file_name_to_save = cur_file[:-4] + '_' + str(data[self._roi_col_name]) + "-filtered.csv"
                         else:
                             file_name_to_save = cur_file[:-4] + "-filtered.csv"
 
