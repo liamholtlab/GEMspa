@@ -52,7 +52,7 @@ class RunDialog(wx.Dialog):
                                              wildcard="txt files (*.txt)|*.txt", size=(500, 20), pos=(10, 95))
 
         start_y=135
-        spacing=30
+        spacing=29
         params_list = ['Time between frames (s):', 'Scale (microns per px):',
                        'Min. track length (effective Diff):', 'Max t-lag (effective Diff):',
                        'Min. track length (ensemble average):', 'Max t-lag (ensemble average, anomalous exp)',
@@ -81,8 +81,8 @@ class RunDialog(wx.Dialog):
         self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI or mask files to filter tracks", pos=(10, next_start+spacing*4))
         self.save_filtered_csvs_chk = wx.CheckBox(panel, label="Save filtered trajectory .csv files", pos=(10, next_start+spacing*5))
 
-        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(10, next_start+spacing*5+spacing+10))
-        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(150, next_start+spacing*5+spacing+10))
+        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(300, next_start+spacing*3))
+        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(450, next_start+spacing*3))
 
     def get_rainbow_tracks_by_frame(self):
         # returns True if plot rainbow tracks by frame
@@ -136,7 +136,7 @@ class RunDialog(wx.Dialog):
     def get_max_step_size_rainbow_tracks(self):
         return int(self.text_ctrl_run_params[12].GetValue())
     def get_line_width_for_rainbow_tracks(self):
-        return int(self.text_ctrl_run_params[13].GetValue())
+        return float(self.text_ctrl_run_params[13].GetValue())
     def get_prefix_for_image_name(self):
         return self.text_ctrl_run_params[14].GetValue().strip()
 

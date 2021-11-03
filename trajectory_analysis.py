@@ -197,7 +197,7 @@ class trajectory_analysis:
 
         self.line_width_rainbow_tracks = 0.1
         self.time_coded_rainbow_tracks_by_frame = False # color by track start, by default
-        self.rainbow_tracks_DPI=500
+        self.rainbow_tracks_DPI=300
 
         self.img_file_prefix = img_file_prefix
 
@@ -1680,19 +1680,19 @@ class trajectory_analysis:
                         bk_img = io.imread(self.valid_img_files[common_index])
 
                         # plot figure to draw tracks by Deff with image in background
-                        cur_fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+                        cur_fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.rainbow_tracks_DPI)
                         cur_ax = cur_fig.add_subplot(1, 1, 1)
                         cur_ax.axis("off")
                         cur_ax.imshow(bk_img, cmap="gray")
 
                         # plot figure to draw tracks by ss with image in background
-                        cur_fig_ss = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+                        cur_fig_ss = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.rainbow_tracks_DPI)
                         cur_ax_ss = cur_fig_ss.add_subplot(1, 1, 1)
                         cur_ax_ss.axis("off")
                         cur_ax_ss.imshow(bk_img, cmap="gray")
 
                         # plot figure to draw tracks by time with image in background
-                        cur_fig_time = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
+                        cur_fig_time = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.rainbow_tracks_DPI)
                         cur_ax_time = cur_fig_time.add_subplot(1, 1, 1)
                         cur_ax_time.axis("off")
                         cur_ax_time.imshow(bk_img, cmap="gray")
@@ -1913,6 +1913,7 @@ class trajectory_analysis:
                     cur_fig_time.tight_layout()
                     out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_time.tif'
                     cur_fig_time.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
+                    #cur_fig_time.savefig(self.results_dir + '/' + out_file[:-4]+'.pdf', format='pdf', dpi=self.rainbow_tracks_DPI)
                     plt.close(cur_fig_time)
 
                     # cur_fig_roi.tight_layout()
