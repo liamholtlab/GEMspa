@@ -176,7 +176,7 @@ def filter_tracks(track_data, min_len, time_steps, min_resolution):
 
 class trajectory_analysis:
     def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
-                 make_rainbow_tracks=True, limit_to_ROIs=False, save_filtered_traj=False, img_file_prefix='DNA_',
+                 make_rainbow_tracks=True, limit_to_ROIs=False, img_file_prefix='DNA_',
                  log_file=''):
 
         self.get_calibration_from_metadata=use_movie_metadata
@@ -184,7 +184,7 @@ class trajectory_analysis:
         self.make_rainbow_tracks = make_rainbow_tracks
         self.limit_to_ROIs = limit_to_ROIs
 
-        self.output_filtered_tracks=save_filtered_traj
+        self.output_filtered_tracks=True
 
         self.calibration_from_metadata={}
         self.valid_img_files = {}
@@ -194,6 +194,10 @@ class trajectory_analysis:
         self.max_ss_rainbow_tracks=1
         self.min_D_rainbow_tracks=0
         self.max_D_rainbow_tracks=2
+
+        self.line_width_rainbow_tracks = 0.1
+        self.time_coded_rainbow_tracks_by_frame = False # color by track start, by default
+        self.rainbow_tracks_DPI=500
 
         self.img_file_prefix = img_file_prefix
 
@@ -453,9 +457,15 @@ class trajectory_analysis:
         msd_diff_obj.save_dir = self.results_dir
 
         msd_diff_obj.min_track_len_linfit = self.min_track_len_linfit
+
+        # set this to same as linfit - needs to be the SAME or output won't work right b/c we output both for each track
+        # so need to have same number of tracks
+        msd_diff_obj.min_track_len_loglogfit = self.min_track_len_linfit
+
         msd_diff_obj.min_track_len_ensemble = self.min_track_len_ensemble
 
         msd_diff_obj.tlag_cutoff_linfit = self.tlag_cutoff_linfit
+        msd_diff_obj.tlag_cutoff_loglogfit = self.tlag_cutoff_linfit # set this to same as linfit for now
         msd_diff_obj.tlag_cutoff_linfit_ensemble = self.tlag_cutoff_linfit_ensemble
         msd_diff_obj.tlag_cutoff_loglogfit_ensemble = self.tlag_cutoff_loglogfit_ensemble
 
@@ -486,6 +496,101 @@ class trajectory_analysis:
             handles.insert(0, h1)
             labels.insert(0, l1)
         ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
+
+    def plot_alpha_D_heatmap(self, min_pts=5):
+
+        self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt", index_col=0, sep='\t',low_memory=False)
+
+        self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
+        self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        num_groups=0
+        for group in np.unique(self.data_list_with_results_full['group_readable']):
+            group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
+
+            if(len(group_data)>=min_pts):
+                num_groups+=1
+
+        fig,axs = plt.subplots(1,2,figsize=(num_groups * 10, 10))
+        group_i=0
+
+        xlim_min_all=0
+        xlim_max_all=0
+        ylim_min_all=0
+        ylim_max_all=0
+        for group in np.unique(self.data_list_with_results_full['group_readable']):
+            group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
+
+            if(len(group_data)>=min_pts):
+
+
+                to_plot1 = np.log(group_data['D'])
+                to_plot2 = group_data['aexp']
+
+                d_med = np.median(to_plot1)
+                a_med = np.median(to_plot2)
+
+                sns.kdeplot(x=to_plot1, y=to_plot2, color='black', linewidths=0.1, ax=axs[group_i])
+                sns.kdeplot(x=to_plot1, y=to_plot2, cmap='Blues', fill=True, thresh=0, ax=axs[group_i], ) #levels=10)
+
+                # xlim_min = np.percentile(to_plot1, 1)
+                # xlim_max = np.percentile(to_plot1, 99)
+                #
+                # ylim_min = np.percentile(to_plot2, 1)
+                # ylim_max = np.percentile(to_plot2, 99)
+
+                axs[group_i].scatter(to_plot1, to_plot2, linewidths=0, s=2, marker='.', color='black')
+
+
+                #(xlim_min, xlim_max)=axs[group_i].get_xlim()
+                #(ylim_min, ylim_max)=axs[group_i].get_ylim()
+
+                #ax.plot([d_med, d_med], [ylim_min, a_med], linewidth=1, linestyle='--', color='red')
+                #ax.plot([xlim_min, d_med], [a_med, a_med], linewidth=1, linestyle='--', color='red')
+
+                #ax.text(xlim_min + 1, a_med + 0.03, f"$α_{{med}}={np.round(a_med, 2):.2f}$", rotation=0, color='red')
+                #ax.text(d_med + 0.1, 0, f"$D_{{med}}={np.round(np.exp(d_med), 2):.2f}$", rotation=90, color='red')
+
+                #ax.set_xlim((xlim_min, xlim_max))
+                #ax.set_ylim((ylim_min, ylim_max))
+
+                axs[group_i].axvline(-1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
+                axs[group_i].axhline(1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
+
+                axs[group_i].set_title(group)
+
+                axs[group_i].set_xlabel('$log(D_{100ms})$')
+                axs[group_i].set_ylabel('α')
+
+                (xlim_min, xlim_max) = axs[group_i].get_xlim()
+                (ylim_min, ylim_max) = axs[group_i].get_ylim()
+
+                if(group_i == 0):
+                    xlim_min_all=xlim_min
+                    ylim_min_all=ylim_min
+                    xlim_max_all=xlim_max
+                    ylim_max_all=ylim_max
+                else:
+                    if(xlim_min<xlim_min_all):
+                        xlim_min_all=xlim_min
+                    if (ylim_min < ylim_min_all):
+                        ylim_min_all = ylim_min
+                    if(xlim_max>xlim_max_all):
+                        xlim_max_all=xlim_max
+                    if (ylim_max > ylim_max_all):
+                        ylim_max_all = ylim_max
+
+                group_i+=1
+            else:
+                print(f"Did not make alpha-D heatmap for group {group} since there were less than {min_pts} trajectories.")
+
+        for ax in axs:
+            ax.set_xlim((xlim_min_all, xlim_max_all))
+            ax.set_ylim((ylim_min_all, ylim_max_all))
+
+        fig.savefig(self.results_dir + '/alpha_D_heatmaps.pdf')
+        fig.clf()
+        plt.close(fig)
 
     def plot_distribution_Deff(self, plot_type='gkde', bin_size=0.02 , min_pts=20, make_legend=False):
         self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt", index_col=0, sep='\t', low_memory=False)
@@ -1492,8 +1597,10 @@ class trajectory_analysis:
         full_results1['group_readable']=''
         full_results2_cols1=['D_median','D_mean','D_median_filt','D_mean_filt','avg_velocity']
         full_results2_cols2=['Trajectory','D','err','r_sq','rmse','track_len','D_max_tlag']
-        cols_len=len(full_results2_cols1) + len(full_results2_cols2)
-        full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2)
+        full_results2_cols3=['K','aexp','aexp_r_sq','aexp_rmse']
+
+        cols_len=len(full_results2_cols1) + len(full_results2_cols2) + len(full_results2_cols3)
+        full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2+full_results2_cols3)
         self.data_list_with_results_full = pd.concat([full_results1,full_results2], axis=1)
 
         # make a dataframe for the radius of gyration, avg velocity, and track length.  for each, the distribution will be output in a row
@@ -1519,6 +1626,10 @@ class trajectory_analysis:
         self.data_list_with_results['D_group_mean'] = 0.0
         self.data_list_with_results['D_group_std'] = 0.0
         self.data_list_with_results['D_group_sem'] = 0.0
+        self.data_list_with_results['aexp_group_median'] = 0.0
+        self.data_list_with_results['aexp_group_mean'] = 0.0
+        self.data_list_with_results['aexp_group_std'] = 0.0
+        self.data_list_with_results['aexp_group_sem'] = 0.0
         self.data_list_with_results['num_tracks'] = 0
         self.data_list_with_results['num_tracks_D'] = 0
         self.data_list_with_results['area'] = ''
@@ -1668,6 +1779,7 @@ class trajectory_analysis:
                     msd_diff_obj.set_track_data(track_data)
                     msd_diff_obj.msd_all_tracks()
                     msd_diff_obj.fit_msd()
+                    msd_diff_obj.fit_msd_alpha()
                     msd_diff_obj.calculate_ensemble_average()
                     msd_diff_obj.fit_msd_ensemble()
                     msd_diff_obj.fit_msd_ensemble_alpha()
@@ -1675,17 +1787,20 @@ class trajectory_analysis:
                     msd_diff_obj.average_velocity()
 
                     # rainbow tracks
-                    if(self.make_rainbow_tracks):
+                    if(self.make_rainbow_tracks): # lw is line width in the matplotlib function - convert from pixel size - using 96 PPI (???)
                         if(cur_ax != None):
                             msd_diff_obj.save_tracks_to_img(cur_ax, len_cutoff='none', remove_tracks=False,
                                                         min_Deff=self.min_D_rainbow_tracks,
-                                                        max_Deff=self.max_D_rainbow_tracks, lw=0.1)
+                                                        max_Deff=self.max_D_rainbow_tracks, lw=self.line_width_rainbow_tracks)
                         if(cur_ax_ss != None):
                             msd_diff_obj.save_tracks_to_img_ss(cur_ax_ss, min_ss=self.min_ss_rainbow_tracks,
-                                                           max_ss=self.max_ss_rainbow_tracks, lw=0.1)
+                                                           max_ss=self.max_ss_rainbow_tracks, lw=self.line_width_rainbow_tracks)
 
                         if (cur_ax_time != None):
-                            msd_diff_obj.save_tracks_to_img_time(cur_ax_time, lw=0.1)
+                            if(self.time_coded_rainbow_tracks_by_frame):
+                                msd_diff_obj.save_tracks_to_img_time(cur_ax_time, relative_to='frame', lw=self.line_width_rainbow_tracks)
+                            else:
+                                msd_diff_obj.save_tracks_to_img_time(cur_ax_time, relative_to='track', lw=self.line_width_rainbow_tracks)
 
                         # if (cur_ax_roi != None):
                         #     msd_diff_obj.save_tracks_to_img_clr(cur_ax_roi, lw=0.1, color=roi_colors[count])
@@ -1731,7 +1846,18 @@ class trajectory_analysis:
                         msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0], msd_diff_obj.D_linfits[:,0])][:,1])
 
                     next_col = len(full_results1.columns) + len(full_results2_cols1)
-                    self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),next_col:next_col+len(cur_data[0])]=cur_data
+                    self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data), next_col:next_col + len(cur_data[0])] = cur_data
+
+                    # add in the alpha information for each track
+                    next_col = len(full_results1.columns) + len(full_results2_cols1) + len(full_results2_cols2)
+                    self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
+                        next_col:next_col + 1] = msd_diff_obj.D_loglogfits[:,msd_diff_obj.D_loglog_K_col]
+                    self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
+                        next_col+1:next_col + 2] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_alpha_col]
+                    self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
+                        next_col+2:next_col + 3] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_rsq_col]
+                    self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
+                        next_col+3:next_col + 4] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_rmse_col]
 
                     # fill Rg data and track len data
                     self.data_list_with_Rg.loc[Rg_i:Rg_i+2, 'id'] = index
@@ -1776,22 +1902,22 @@ class trajectory_analysis:
                     # save figure of lines plotted on bk_img
                     cur_fig.tight_layout()
                     out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_Deff.tif'
-                    cur_fig.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
+                    cur_fig.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
                     plt.close(cur_fig)
 
                     cur_fig_ss.tight_layout()
                     out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_ss.tif'
-                    cur_fig_ss.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
+                    cur_fig_ss.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
                     plt.close(cur_fig_ss)
 
                     cur_fig_time.tight_layout()
                     out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_time.tif'
-                    cur_fig_time.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
+                    cur_fig_time.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
                     plt.close(cur_fig_time)
 
                     # cur_fig_roi.tight_layout()
                     # out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_roi.tif'
-                    # cur_fig_roi.savefig(self.results_dir + '/' + out_file, dpi=500)  # 1000
+                    # cur_fig_roi.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
                     # plt.close(cur_fig_roi)
 
         if((self.uneven_time_steps or self.limit_to_ROIs) and full_length > full_data_i):
@@ -1819,8 +1945,28 @@ class trajectory_analysis:
                 self.data_list_with_results['D_group_std'])
 
             self.data_list_with_results['D_group_sem'] = np.where(
-                self.data_list_with_results['group'] == cur_group, np.std(cur_group_data)/np.sqrt(len(cur_group_data)),
+                self.data_list_with_results['group'] == cur_group,
+                np.std(cur_group_data)/np.sqrt(len(cur_group_data)),
                 self.data_list_with_results['D_group_sem'])
+
+            # same for aexp (alpha)
+            cur_group_data = self.data_list_with_results_full[self.data_list_with_results_full['group'] == cur_group]['aexp']
+            self.data_list_with_results['aexp_group_median'] = np.where(
+                self.data_list_with_results['group'] == cur_group, np.median(cur_group_data),
+                self.data_list_with_results['aexp_group_median'])
+
+            self.data_list_with_results['aexp_group_mean'] = np.where(
+                self.data_list_with_results['group'] == cur_group, np.mean(cur_group_data),
+                self.data_list_with_results['aexp_group_mean'])
+
+            self.data_list_with_results['aexp_group_std'] = np.where(
+                self.data_list_with_results['group'] == cur_group, np.std(cur_group_data),
+                self.data_list_with_results['aexp_group_std'])
+
+            self.data_list_with_results['aexp_group_sem'] = np.where(
+                self.data_list_with_results['group'] == cur_group,
+                np.std(cur_group_data) / np.sqrt(len(cur_group_data)),
+                self.data_list_with_results['aexp_group_sem'])
 
 
         self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
