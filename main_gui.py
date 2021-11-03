@@ -40,7 +40,7 @@ class ConditionsDialog(wx.Dialog):
 
 class RunDialog(wx.Dialog):
     def __init__(self, default_dir, default_filepath):
-        super().__init__(parent=None, title='Run GEM Analysis', size=(750, 750))
+        super().__init__(parent=None, title='Run GEM Analysis', size=(750, 775))
         panel = wx.Panel(self)
 
         wx.StaticText(panel, label="Enter directory to save the results:", pos=(10, 15))
@@ -125,7 +125,7 @@ class RunDialog(wx.Dialog):
 class GEMSAnalyzerMainFrame(wx.Frame):
 
     def __init__(self):
-        super().__init__(None, -1, 'GEMspa', size=(1000,750))
+        super().__init__(None, -1, 'GEMspa', size=(1200,775))
         self.statusbar =self.CreateStatusBar()
         self.statusbar.SetStatusText('Welcome!')
         self.create_menu()
