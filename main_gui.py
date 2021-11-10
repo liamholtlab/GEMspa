@@ -574,15 +574,15 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.calculate_msd_and_diffusion()
                     traj_an.make_plot() #label_order=conditions_order)
                     traj_an.make_plot_combined_data() #label_order=conditions_order) # like matlab
-                    traj_an.plot_alpha_D_heatmap()
                     traj_an.calculate_step_sizes_and_angles()
+                    traj_an.plot_alpha_D_heatmap()
 
                     #traj_an.plot_distribution_step_sizes(tlags=[1,])
                     #traj_an.plot_distribution_angles(tlags=[1,])
-                    #traj_an.plot_distribution_Deff()
+                    traj_an.plot_distribution_Deff()
 
-                    #if(limit_with_rois):
-                    #    traj_an.make_plot_roi_area()
+                    if(limit_with_rois):
+                        traj_an.make_plot_roi_area()
 
                     self.statusbar.SetStatusText('Finished!')
                     print("Finished!")

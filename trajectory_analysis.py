@@ -184,6 +184,8 @@ class trajectory_analysis:
         self.make_rainbow_tracks = make_rainbow_tracks
         self.limit_to_ROIs = limit_to_ROIs
 
+        self.output_plain_rainbow_tracks_time=False
+
         self.output_filtered_tracks=True
 
         self.calibration_from_metadata={}
@@ -522,48 +524,29 @@ class trajectory_analysis:
             group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
 
             if(len(group_data)>=min_pts):
-
+                if(num_groups > 1):
+                    cur_ax=axs[group_i]
+                else:
+                    cur_ax=axs
 
                 to_plot1 = np.log(group_data['D'])
                 to_plot2 = group_data['aexp']
 
-                d_med = np.median(to_plot1)
-                a_med = np.median(to_plot2)
+                sns.kdeplot(x=to_plot1, y=to_plot2, color='black', linewidths=0.1, ax=cur_ax)
+                sns.kdeplot(x=to_plot1, y=to_plot2, cmap='Blues', fill=True, thresh=0, ax=cur_ax, ) #levels=10)
 
-                sns.kdeplot(x=to_plot1, y=to_plot2, color='black', linewidths=0.1, ax=axs[group_i])
-                sns.kdeplot(x=to_plot1, y=to_plot2, cmap='Blues', fill=True, thresh=0, ax=axs[group_i], ) #levels=10)
+                cur_ax.scatter(to_plot1, to_plot2, linewidths=0, s=2, marker='.', color='black')
 
-                # xlim_min = np.percentile(to_plot1, 1)
-                # xlim_max = np.percentile(to_plot1, 99)
-                #
-                # ylim_min = np.percentile(to_plot2, 1)
-                # ylim_max = np.percentile(to_plot2, 99)
+                cur_ax.axvline(-1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
+                cur_ax.axhline(1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
 
-                axs[group_i].scatter(to_plot1, to_plot2, linewidths=0, s=2, marker='.', color='black')
+                cur_ax.set_title(group)
 
+                cur_ax.set_xlabel('$log(D_{100ms})$')
+                cur_ax.set_ylabel('α')
 
-                #(xlim_min, xlim_max)=axs[group_i].get_xlim()
-                #(ylim_min, ylim_max)=axs[group_i].get_ylim()
-
-                #ax.plot([d_med, d_med], [ylim_min, a_med], linewidth=1, linestyle='--', color='red')
-                #ax.plot([xlim_min, d_med], [a_med, a_med], linewidth=1, linestyle='--', color='red')
-
-                #ax.text(xlim_min + 1, a_med + 0.03, f"$α_{{med}}={np.round(a_med, 2):.2f}$", rotation=0, color='red')
-                #ax.text(d_med + 0.1, 0, f"$D_{{med}}={np.round(np.exp(d_med), 2):.2f}$", rotation=90, color='red')
-
-                #ax.set_xlim((xlim_min, xlim_max))
-                #ax.set_ylim((ylim_min, ylim_max))
-
-                axs[group_i].axvline(-1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
-                axs[group_i].axhline(1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
-
-                axs[group_i].set_title(group)
-
-                axs[group_i].set_xlabel('$log(D_{100ms})$')
-                axs[group_i].set_ylabel('α')
-
-                (xlim_min, xlim_max) = axs[group_i].get_xlim()
-                (ylim_min, ylim_max) = axs[group_i].get_ylim()
+                (xlim_min, xlim_max) = cur_ax.get_xlim()
+                (ylim_min, ylim_max) = cur_ax.get_ylim()
 
                 if(group_i == 0):
                     xlim_min_all=xlim_min
@@ -584,9 +567,13 @@ class trajectory_analysis:
             else:
                 print(f"Did not make alpha-D heatmap for group {group} since there were less than {min_pts} trajectories.")
 
-        for ax in axs:
-            ax.set_xlim((xlim_min_all, xlim_max_all))
-            ax.set_ylim((ylim_min_all, ylim_max_all))
+        if(num_groups > 1):
+            for ax in axs:
+                ax.set_xlim((xlim_min_all, xlim_max_all))
+                ax.set_ylim((ylim_min_all, ylim_max_all))
+        else:
+            axs.set_xlim((xlim_min_all, xlim_max_all))
+            axs.set_ylim((ylim_min_all, ylim_max_all))
 
         fig.savefig(self.results_dir + '/alpha_D_heatmaps.pdf')
         fig.clf()
@@ -1667,10 +1654,12 @@ class trajectory_analysis:
                 cur_fig=None
                 cur_fig_ss=None
                 cur_fig_time = None
+                cur_fig_time_plain = None
                 #cur_fig_roi=None
                 cur_ax=None
                 cur_ax_ss=None
                 cur_ax_time = None
+                cur_ax_time_plain = None
                 #cur_ax_roi=None
                 # set up the figure axes for making rainbow tracks
                 if (self.make_rainbow_tracks):
@@ -1696,6 +1685,13 @@ class trajectory_analysis:
                         cur_ax_time = cur_fig_time.add_subplot(1, 1, 1)
                         cur_ax_time.axis("off")
                         cur_ax_time.imshow(bk_img, cmap="gray")
+
+                        # plot figure to draw tracks by time with NO image in background, as pdf
+                        # x and y needs reversing
+                        if(self.output_plain_rainbow_tracks_time):
+                            cur_fig_time_plain = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.rainbow_tracks_DPI)
+                            cur_ax_time_plain = cur_fig_time_plain.add_subplot(1, 1, 1)
+                            cur_ax_time_plain.axis("off")
 
                         # plot figure to draw tracks by roi with image in background
                         # cur_fig_roi = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=100)
@@ -1801,6 +1797,14 @@ class trajectory_analysis:
                                 msd_diff_obj.save_tracks_to_img_time(cur_ax_time, relative_to='frame', lw=self.line_width_rainbow_tracks)
                             else:
                                 msd_diff_obj.save_tracks_to_img_time(cur_ax_time, relative_to='track', lw=self.line_width_rainbow_tracks)
+
+                        if (self.output_plain_rainbow_tracks_time and cur_ax_time_plain != None):
+                            if(self.time_coded_rainbow_tracks_by_frame):
+                                msd_diff_obj.save_tracks_to_img_time(cur_ax_time_plain, relative_to='frame', lw=self.line_width_rainbow_tracks, reverse_coords=True,
+                                                                     xlim=bk_img.shape[1], ylim=bk_img.shape[0])
+                            else:
+                                msd_diff_obj.save_tracks_to_img_time(cur_ax_time_plain, relative_to='track', lw=self.line_width_rainbow_tracks, reverse_coords=True,
+                                                                     xlim=bk_img.shape[1], ylim=bk_img.shape[0])
 
                         # if (cur_ax_roi != None):
                         #     msd_diff_obj.save_tracks_to_img_clr(cur_ax_roi, lw=0.1, color=roi_colors[count])
@@ -1913,8 +1917,13 @@ class trajectory_analysis:
                     cur_fig_time.tight_layout()
                     out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_time.tif'
                     cur_fig_time.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
-                    #cur_fig_time.savefig(self.results_dir + '/' + out_file[:-4]+'.pdf', format='pdf', dpi=self.rainbow_tracks_DPI)
                     plt.close(cur_fig_time)
+
+                    if(self.output_plain_rainbow_tracks_time):
+                        cur_fig_time_plain.tight_layout()
+                        out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_time.pdf'
+                        cur_fig_time_plain.savefig(self.results_dir + '/' + out_file, format="pdf", dpi=self.rainbow_tracks_DPI)
+                        plt.close(cur_fig_time_plain)
 
                     # cur_fig_roi.tight_layout()
                     # out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_roi.tif'

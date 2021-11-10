@@ -934,7 +934,7 @@ class msd_diffusion:
                             [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
                             '-', color=cm.jet(show_color), linewidth=lw)
 
-    def save_tracks_to_img_time(self, ax, relative_to='track', lw=0.1):
+    def save_tracks_to_img_time(self, ax, relative_to='track', lw=0.1, reverse_coords=False, xlim=0, ylim=0):
     # coloring based on frame number of each track over time
     # uses min track len step size to limit tracks
         if(len(self.track_lengths)>0):
@@ -958,7 +958,14 @@ class msd_diffusion:
 
                             show_color=cur_frame/max_frame
 
-                            ax.plot([cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
+                            if(reverse_coords):
+                                ax.plot(
+                                    [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                                    [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                                    '-', color=cm.jet(show_color), linewidth=lw)
+                            else:
+                                ax.plot(
+                                    [cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
                                     [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
                                     '-', color=cm.jet(show_color), linewidth=lw)
                 else:
@@ -969,11 +976,16 @@ class msd_diffusion:
 
                             show_color=step_i/max_step
 
-                            ax.plot([cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
-                                    [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
+                            if(reverse_coords):
+                                ax.plot(
+                                    [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                                    [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
                                     '-', color=cm.jet(show_color), linewidth=lw)
-
-
+                            else:
+                                ax.plot(
+                                    [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                                    [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                                    '-', color=cm.jet(show_color), linewidth=lw)
 
     def save_tracks_to_img_clr(self, ax, lw=0.1, color='blue'):
         ids = np.unique(self.tracks[:, self.tracks_id_col])
