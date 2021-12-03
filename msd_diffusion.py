@@ -8,6 +8,7 @@ import os
 from skimage import img_as_ubyte, io
 from numpy import linalg as LA
 from scipy.stats import kurtosis
+from skimage import draw
 
 def reshape_to_rgb(grey_img):
     # makes single color channel image into rgb
@@ -37,7 +38,7 @@ class msd_diffusion:
         self.min_track_len_ensemble=11
 
         self.min_track_len_step_size = 3
-        self.max_tlag_step_size=3
+        self.max_tlag_step_size=10
 
         self.tlag_cutoff_linfit=10
         self.tlag_cutoff_loglogfit=10
@@ -89,6 +90,8 @@ class msd_diffusion:
 
     def set_track_data(self, track_data):
         self.tracks=track_data
+        self.track_lengths = np.asarray([])
+        self.track_step_sizes = np.asarray([])
         self.msd_tracks = np.asarray([])
         self.D_linfits = np.asarray([])
         self.D_loglogfits = np.asarray([])
@@ -98,9 +101,37 @@ class msd_diffusion:
         self.ngp = np.asarray([])
         self.kurt = np.asarray([])
         self.ensemble_average = np.asarray([])
-        self.angles_tlag1=np.asarray([])
+        self.track_intensities = np.asarray([])
         self.fill_track_lengths()
         self.fill_track_sizes()
+
+    def fill_track_intensities(self, tif_movie, r, filter=True):
+        # sets the average track intensity for each track
+        ids = np.unique(self.tracks[:, self.tracks_id_col])
+
+        if (filter):  # remove tracks that are too short, less MSD to calculate, faster
+            min_track_length = np.min([self.min_track_len_linfit, self.min_track_len_loglogfit])
+
+            valid_track_lens = self.track_lengths[np.where(self.track_lengths[:, 1] >= min_track_length)]
+            if (len(valid_track_lens) == 0):
+                return ()
+            ids = valid_track_lens[:, 0]
+
+        self.track_intensities = np.zeros((len(ids), 3), )
+        for i,id in enumerate(ids):
+            cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
+
+            intens_list = []
+            for j in range(len(cur_track)):
+                rr, cc = draw.disk((int(cur_track[j][self.tracks_y_col]), int(cur_track[j][self.tracks_x_col])),
+                                   r, shape=tif_movie[0].shape)
+                #if(np.max(rr) > tif_movie[0].shape[0] or np.max(cc) > tif_movie[0].shape[1]):
+                #    print("ERROR")
+                intens_list.append(np.mean(tif_movie[int(cur_track[j][self.tracks_frame_col])][rr, cc]))
+
+            self.track_intensities[i][0] = cur_track[0][self.tracks_id_col]
+            self.track_intensities[i][1] = np.mean(intens_list)
+            self.track_intensities[i][2] = np.std(intens_list)
 
     def vel_2d(self, x, y):
         dists = np.sqrt(np.square(x[1:] - x[:-1]) + np.square(y[1:] - y[:-1]))
@@ -171,10 +202,6 @@ class msd_diffusion:
         self.angles = np.empty((self.max_tlag_step_size, tlag1_dim_angles,))
         self.angles.fill(np.nan)
 
-        # used for angle autocorrelation
-        self.angles_tlag1 = np.empty((len(ids),int(np.max(track_lens - 2))+1))
-        self.angles_tlag1.fill(np.nan)
-
         start_arr=np.zeros((self.max_tlag_step_size,), dtype='int')
         angle_start_arr = np.zeros((self.max_tlag_step_size,), dtype='int')
         for id_i,id in enumerate(ids):
@@ -184,7 +211,6 @@ class msd_diffusion:
             x = cur_track[:, self.tracks_x_col]
             y = cur_track[:, self.tracks_y_col]
             tlags = np.arange(1, num_shifts+1, 1)
-            self.angles_tlag1[id_i][0]=id
             for i, tlag in enumerate(tlags):
                 x_shifts = x[tlag:] - x[:-tlag]
                 y_shifts = y[tlag:] - y[:-tlag]
@@ -199,22 +225,33 @@ class msd_diffusion:
                     # relative angle: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3856831/
                     vecs = np.column_stack((x_shifts, y_shifts))
                     theta=np.zeros(len(list(range(0, len(vecs)-tlag, tlag))))
-                    for theta_i,vec_i in enumerate(range(0, len(vecs)-tlag, tlag)): # check range with longer track
+                    for theta_i,vec_i in enumerate(range(0, len(vecs)-tlag, tlag)):
                         if(np.linalg.norm(vecs[vec_i]) == 0 or np.linalg.norm(vecs[vec_i+tlag]) == 0):
                             print("norm of vec is 0: id=", id)
+                            print(np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag])))))
                         theta[theta_i] = np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag]))))
                     self.angles[i][angle_start_arr[i]:angle_start_arr[i]+len(theta)] = theta
 
-                    if(i==0):
-                       self.angles_tlag1[id_i][1:len(theta)+1]=theta
-
                     angle_start_arr[i] += len(theta)
 
-    def msd_all_tracks(self):
+    def msd_all_tracks(self, filter=True):
         # for each track, do MSD calculation
-        ids = np.unique(self.tracks[:,self.tracks_id_col])
-        print("MSD number of tracks:", len(ids))
-        self.msd_tracks = np.zeros((len(self.tracks),self.msd_num_cols), )
+
+        ids = np.unique(self.tracks[:, self.tracks_id_col])
+        print("Total number of tracks:", len(ids))
+
+        if(filter): # remove tracks that are too short, less MSD to calculate, faster
+            min_track_length = np.min([self.min_track_len_linfit,self.min_track_len_loglogfit,self.min_track_len_ensemble])
+
+            valid_track_lens = self.track_lengths[np.where(self.track_lengths[:, 1] >= min_track_length)]
+            if (len(valid_track_lens) == 0):
+                return ()
+            ids=valid_track_lens[:,0]
+            full_len=int(np.sum(valid_track_lens[:,1]))
+        else:
+            full_len=len(self.tracks)
+
+        self.msd_tracks = np.zeros((full_len, self.msd_num_cols), )
         i=0
         for id in ids:
             cur_track = self.tracks[np.where(self.tracks[:,self.tracks_id_col]==id)]
@@ -344,22 +381,28 @@ class msd_diffusion:
             #     self.ngpY[i] = (np.mean(cur_arr**4) / (3 * np.mean(cur_arr**2) ** 2)) - 1
 
 
-    def calculate_ensemble_average(self):
+    def calculate_ensemble_average(self, limit_by_fitting=True):
         # average the MSD at each t-lag
 
         # filter tracks by length
         valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_ensemble - 1))]
         ensemble_average = []
         if(len(valid_tracks)>0):
-            max_tlag=int(np.max(valid_tracks[:,self.msd_len_col]))
+
+            if(limit_by_fitting):
+                max_tlag = np.max([self.tlag_cutoff_linfit_ensemble, self.tlag_cutoff_loglogfit_ensemble])
+                max_tlag = np.min([max_tlag, int(np.max(valid_tracks[:, self.msd_len_col]))])
+            else:
+                max_tlag = int(np.max(valid_tracks[:, self.msd_len_col]))
             for tlag in range(1,max_tlag+1,1):
                 # gather all data for current tlag
                 tlag_time=tlag*self.time_step
                 cur_tlag_MSDs=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
 
-                ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs)])
+                ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs), np.std(cur_tlag_MSDs)])
 
         self.ensemble_average=np.asarray(ensemble_average)
+        return len(np.unique(valid_tracks[:,self.msd_id_col]))
 
     def fit_msd_ensemble_alpha(self):
         #MSD(t) = L * t ^ a
@@ -981,11 +1024,18 @@ class msd_diffusion:
                                     [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
                                     [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
                                     '-', color=cm.jet(show_color), linewidth=lw)
+
                             else:
                                 ax.plot(
                                     [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
                                     [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
                                     '-', color=cm.jet(show_color), linewidth=lw)
+                        # if (reverse_coords):
+                        #     ax.text(cur_track[0, self.tracks_y_col],
+                        #         cur_track[0, self.tracks_x_col], str(id), color='red')
+                        # else:
+                        #     pass
+
 
     def save_tracks_to_img_clr(self, ax, lw=0.1, color='blue'):
         ids = np.unique(self.tracks[:, self.tracks_id_col])

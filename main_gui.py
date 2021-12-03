@@ -40,7 +40,7 @@ class ConditionsDialog(wx.Dialog):
 
 class RunDialog(wx.Dialog):
     def __init__(self, default_dir, default_filepath):
-        super().__init__(parent=None, title='Run GEM Analysis', size=(750, 800))
+        super().__init__(parent=None, title='Run GEM Analysis', size=(775, 800))
         panel = wx.Panel(self)
 
         wx.StaticText(panel, label="Enter directory to save the results:", pos=(10, 15))
@@ -52,20 +52,21 @@ class RunDialog(wx.Dialog):
                                              wildcard="txt files (*.txt)|*.txt", size=(500, 20), pos=(10, 95))
 
         start_y=135
-        spacing=29
+        spacing=27
         params_list = ['Time between frames (s):', 'Scale (microns per px):',
-                       'Min. track length (effective Diff):', 'Max t-lag (effective Diff):',
-                       'Min. track length (ensemble average):', 'Max t-lag (ensemble average, anomalous exp)',
-                       'Min track length (step size/angles):', 'Max t-lag (step size/angles):',
+                       'Min. track length:', 'Number of tau for fitting: (< Min. track length)',
+                       'Min. track length, ensemble ave:', 'Number of tau for fitting, ensemble ave: (< Min. track length)',
+                       'Min. track length, step-size/angles:', 'Max. tau, step-size/angles:',
                        'Time step tolerance (uneven time steps) (s):',
-                       'Min D for filtered plots:','Max D for filtered plots:', 'Max D for rainbow tracks:',
-                       'Max step size for rainbow tracks (microns):','Line width for rainbow tracks (pts):',
+                       'Min. D for filtered plots:','Max. D for filtered plots:', 'Max. D for rainbow tracks:',
+                       'Max. step size for rainbow tracks (microns):','Line width for rainbow tracks (pts):',
+                       'Radius for gem intensity measurement (px):',
                        'Prefix for image file name:']
-        default_values = [0.010,0.11,11,10,11,10,3,3,0.005,0,2,2,1,0.1,'DNA_']
+        default_values = [0.010,0.11,11,10,11,10,3,10,0.005,0,2,2,1,0.1,3,'DNA_']
         self.text_ctrl_run_params=[]
         for i,param in enumerate(params_list):
             wx.StaticText(panel, label=param, pos=(10,start_y+i*spacing))
-            self.text_ctrl_run_params.append(wx.TextCtrl(panel, id=wx.ID_ANY, value=str(default_values[i]), pos=(300, start_y+i*spacing)))
+            self.text_ctrl_run_params.append(wx.TextCtrl(panel, id=wx.ID_ANY, value=str(default_values[i]), pos=(400, start_y+i*spacing)))
 
         next_start=start_y+(i+1)*spacing+10
 
@@ -79,7 +80,8 @@ class RunDialog(wx.Dialog):
         self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+spacing*2))
         self.draw_rainbow_tracks_chk = wx.CheckBox(panel, label="Draw rainbow tracks on image files", pos=(10, next_start+spacing*3))
         self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI or mask files to filter tracks", pos=(10, next_start+spacing*4))
-        self.save_filtered_csvs_chk = wx.CheckBox(panel, label="Save filtered trajectory .csv files", pos=(10, next_start+spacing*5))
+        self.measure_gem_intensities_chk = wx.CheckBox(panel, label="Measure gem intensities", pos=(10, next_start + spacing * 5))
+        self.save_filtered_csvs_chk = wx.CheckBox(panel, label="Save filtered trajectory .csv files", pos=(10, next_start+spacing*6))
 
         self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(300, next_start+spacing*3))
         self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(450, next_start+spacing*3))
@@ -104,20 +106,22 @@ class RunDialog(wx.Dialog):
         return self.limit_with_rois_chk.IsChecked()
     def save_filtered_csvs(self):
         return self.save_filtered_csvs_chk.IsChecked()
+    def measure_gem_intensities(self):
+        return self.measure_gem_intensities_chk.IsChecked()
 
     def get_time_step(self):
         return float(self.text_ctrl_run_params[0].GetValue())
     def get_micron_per_px(self):
         return float(self.text_ctrl_run_params[1].GetValue())
 
-    def get_min_track_len_linfit(self):
+    def get_min_track_len(self):
         return int(self.text_ctrl_run_params[2].GetValue())
-    def get_tlag_cutoff_linfit(self):
+    def get_tlag_cutoff(self):
         return int(self.text_ctrl_run_params[3].GetValue())
 
     def get_min_track_len_ensemble(self):
         return int(self.text_ctrl_run_params[4].GetValue())
-    def get_tlag_cutoff_loglogfit_ensemble(self):
+    def get_tlag_cutoff_ensemble(self):
         return int(self.text_ctrl_run_params[5].GetValue())
 
     def get_min_track_len_step_size(self):
@@ -137,8 +141,10 @@ class RunDialog(wx.Dialog):
         return int(self.text_ctrl_run_params[12].GetValue())
     def get_line_width_for_rainbow_tracks(self):
         return float(self.text_ctrl_run_params[13].GetValue())
+    def get_r_for_intensity(self):
+        return float(self.text_ctrl_run_params[14].GetValue())
     def get_prefix_for_image_name(self):
-        return self.text_ctrl_run_params[14].GetValue().strip()
+        return self.text_ctrl_run_params[15].GetValue().strip()
 
 class GEMSAnalyzerMainFrame(wx.Frame):
 
@@ -522,6 +528,7 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                 rainbow_tracks=dlg.draw_rainbow_tracks()
                 limit_with_rois=dlg.limit_with_rois()
                 save_filtered=dlg.save_filtered_csvs()
+                measure_gem_intensities=dlg.measure_gem_intensities()
 
                 if(not save_results_dir or not input_file):
                     wx.MessageDialog(self, "Please do not leave the results directory or the file name blank.  Cannot run analysis.").ShowModal()
@@ -531,23 +538,26 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     # run the analysis
                     #def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
                     #             make_rainbow_tracks=True, limit_to_ROIs=False, img_file_prefix='DNA_', log_file=''):
-                    traj_an = tja.trajectory_analysis(input_file, results_dir=save_results_dir, use_movie_metadata=read_movie_metadata,
-                                                      uneven_time_steps=uneven_time_steps, make_rainbow_tracks=rainbow_tracks,
+                    traj_an = tja.trajectory_analysis(input_file, results_dir=save_results_dir,
+                                                      use_movie_metadata=read_movie_metadata,
+                                                      uneven_time_steps=uneven_time_steps,
+                                                      make_rainbow_tracks=rainbow_tracks,
                                                       limit_to_ROIs=limit_with_rois,
+                                                      measure_track_intensities=measure_gem_intensities,
                                                       img_file_prefix=dlg.get_prefix_for_image_name())
 
                     traj_an.time_step = dlg.get_time_step()
                     traj_an.micron_per_px = dlg.get_micron_per_px()
                     traj_an.ts_resolution=dlg.get_time_step_resolution()
+                    traj_an.intensity_radius=dlg.get_r_for_intensity()
 
                     traj_an.output_filtered_tracks=save_filtered
 
-                    traj_an.min_track_len_linfit = dlg.get_min_track_len_linfit()
+                    traj_an.min_track_len_linfit = dlg.get_min_track_len()
                     traj_an.min_track_len_ensemble = dlg.get_min_track_len_ensemble() #user can set
 
-                    traj_an.tlag_cutoff_linfit = dlg.get_tlag_cutoff_linfit()
-                    traj_an.tlag_cutoff_linfit_ensemble = dlg.get_tlag_cutoff_linfit() # uses same cutoff as for individual tracks
-                    traj_an.tlag_cutoff_loglogfit_ensemble = dlg.get_tlag_cutoff_loglogfit_ensemble() # user can set
+                    traj_an.tlag_cutoff_linfit = dlg.get_tlag_cutoff()
+                    traj_an.tlag_cutoff_ensemble = dlg.get_tlag_cutoff_ensemble()
 
                     traj_an.min_track_len_step_size = dlg.get_min_track_len_step_size()
                     traj_an.max_tlag_step_size = dlg.get_max_tlag_step_size()
@@ -576,13 +586,20 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.make_plot_combined_data() #label_order=conditions_order) # like matlab
                     traj_an.calculate_step_sizes_and_angles()
                     traj_an.plot_alpha_D_heatmap()
+                    traj_an.plot_msd_ensemble_by_group()
+                    traj_an.plot_cos_theta_by_group()
 
                     #traj_an.plot_distribution_step_sizes(tlags=[1,])
                     #traj_an.plot_distribution_angles(tlags=[1,])
-                    traj_an.plot_distribution_Deff()
+                    traj_an.plot_distribution_Deff(bin_size=0.01)
+                    traj_an.plot_distribution_alpha(bin_size=0.01)
+                    traj_an.plot_distribution_Deff(plot_type='', bin_size=0.1)
+                    traj_an.plot_distribution_alpha(plot_type='', bin_size=0.1)
 
                     if(limit_with_rois):
                         traj_an.make_plot_roi_area()
+                    if(measure_gem_intensities):
+                        traj_an.make_plot_intensity()
 
                     self.statusbar.SetStatusText('Finished!')
                     print("Finished!")
