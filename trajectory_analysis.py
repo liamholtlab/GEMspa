@@ -567,19 +567,21 @@ class trajectory_analysis:
 
 
         sns.lineplot(x="tlag", y='cos_theta-mean', hue="group_readable", data=self.cos_theta_by_group,
-                      palette=mpl.cm.get_cmap('tab10').colors, legend=False, linewidth=1.5, ax=ax)
+                      palette='tab10', legend=False, linewidth=1.5, ax=ax)
         sns.scatterplot(x="tlag", y='cos_theta-mean', hue="group_readable", data=self.cos_theta_by_group,
-                         palette=mpl.cm.get_cmap('tab10').colors, ax=ax)
+                         palette='tab10', ax=ax)
 
         if(random_angles):
             x_val=[]
             y_val=[]
             for tlag in np.unique(self.cos_theta_by_group['tlag']):
                 num_angles=self.cos_theta_by_group.loc[self.cos_theta_by_group['tlag']==tlag]['num_angles'].min()
-                rand_angles=np.random.uniform(low=0, high=180, size=(num_angles,))
-                rand_angles = np.cos(np.deg2rad(rand_angles))
-                x_val.append(tlag)
-                y_val.append(np.mean(rand_angles))
+                if(not np.isnan(num_angles)):
+                    num_angles=int(num_angles)
+                    rand_angles=np.random.uniform(low=0, high=180, size=(num_angles,))
+                    rand_angles = np.cos(np.deg2rad(rand_angles))
+                    x_val.append(tlag)
+                    y_val.append(np.mean(rand_angles))
 
             plt.plot(x_val, y_val, color='black', linestyle='--', linewidth=1.5, alpha=0.6, label='Random')
             plt.scatter(x_val, y_val, color='black', alpha=0.6, s=18)
@@ -680,6 +682,10 @@ class trajectory_analysis:
 
             if(len(group_data)>=min_pts):
                 num_groups+=1
+
+        if(num_groups == 0):
+            print("Error: No data")
+            return ()
 
         fig,axs = plt.subplots(1,num_groups,figsize=(num_groups * 10, 10))
         group_i=0
@@ -1355,6 +1361,10 @@ class trajectory_analysis:
 
         self.data_list_with_results_full = pd.read_csv(self.results_dir + '/'+"all_data.txt",index_col=0,sep='\t')
 
+        if(len(self.data_list_with_results_full) == 0):
+            print("Error: No data.")
+            return ()
+
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
         self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
 
@@ -1792,7 +1802,9 @@ class trajectory_analysis:
                 # for this movie, calcuate step sizes and angles for each track
                 msd_diff_obj.set_track_data(track_data)
                 msd_diff_obj.step_sizes_and_angles()
-                msd_diff_obj.non_gaussian_1d()
+
+                if (self.NGP):
+                    msd_diff_obj.non_gaussian_1d()
 
                 cur_data_step_sizes = msd_diff_obj.step_sizes
                 cur_data_angles = msd_diff_obj.angles
@@ -1816,10 +1828,13 @@ class trajectory_analysis:
                 self.data_list_with_step_sizes_full.loc[full_data_ss_i:full_data_ss_i+ss_len-1,"0":str(len(msd_diff_obj.step_sizes[0])-1)]=msd_diff_obj.step_sizes
 
                 for tlag_i in range(1,self.max_tlag_step_size+1,1):
-                    ss_median = np.nanmedian(msd_diff_obj.step_sizes[tlag_i-1]) # FIX
-                    ss_mean = np.nanmean(msd_diff_obj.step_sizes[tlag_i-1]) # FIX
-                    self.data_list_with_step_sizes.at[index,'step_size_' + str(tlag_i) + '_median'] = ss_median
-                    self.data_list_with_step_sizes.at[index,'step_size_' + str(tlag_i) + '_mean'] = ss_mean
+                    ss_data=msd_diff_obj.step_sizes[tlag_i-1][np.logical_not(np.isnan(msd_diff_obj.step_sizes[tlag_i-1]))]
+                    if(len(ss_data)>0):
+                        self.data_list_with_step_sizes.at[index,'step_size_' + str(tlag_i) + '_median'] = np.median(ss_data)
+                        self.data_list_with_step_sizes.at[index,'step_size_' + str(tlag_i) + '_mean'] = np.mean(ss_data)
+                    else:
+                        self.data_list_with_step_sizes.at[index, 'step_size_' + str(tlag_i) + '_median']=np.nan
+                        self.data_list_with_step_sizes.at[index, 'step_size_' + str(tlag_i) + '_mean']=np.nan
                 self.data_list_with_step_sizes.at[index, 'area'] = roi_area
                 self.data_list_with_step_sizes.at[index, 'group'] = file_str
                 self.data_list_with_step_sizes.at[index, 'group_readable'] = group_readable
@@ -1858,7 +1873,8 @@ class trajectory_analysis:
                 self.cos_theta_by_group.at[ind+(tlag-1), 'group_readable'] = group_readable
                 self.cos_theta_by_group.at[ind+(tlag-1), 'tlag'] = str(tlag*self.time_step)
 
-                cur_tlag_data = np.asarray(cur_group_data[cur_group_data['tlag'] == tlag].loc[:,"0":].replace('', np.NaN)).flatten()
+
+                cur_tlag_data = np.asarray(cur_group_data[cur_group_data['tlag'] == tlag].loc[:, "0":].replace('', np.NaN)).flatten().astype('float64')
                 cur_tlag_data = cur_tlag_data[np.logical_not(np.isnan(cur_tlag_data))]
                 if (len(cur_tlag_data) > 1):
                     # take the cosine of theta
@@ -2331,9 +2347,12 @@ class trajectory_analysis:
 
             # output the tau vs. MSD points for ensemble average
             for tau in range(1, self.tlag_cutoff_ensemble+1):
-                self.results_by_group.at[group_i, "MSD_ave_"+str(tau*self.time_step)] = msd_diff_obj.ensemble_average[tau-1][1]
-            for tau in range(1, self.tlag_cutoff_ensemble+1):
-                self.results_by_group.at[group_i, "MSD_std_"+str(tau*self.time_step)] = msd_diff_obj.ensemble_average[tau-1][2]
+                if(len(msd_diff_obj.ensemble_average) >= tau):
+                    self.results_by_group.at[group_i, "MSD_ave_"+str(tau*self.time_step)] = msd_diff_obj.ensemble_average[tau-1][1]
+                    self.results_by_group.at[group_i, "MSD_std_"+str(tau*self.time_step)] = msd_diff_obj.ensemble_average[tau-1][2]
+                else:
+                    self.results_by_group.at[group_i, "MSD_ave_" + str(tau * self.time_step)] = np.nan
+                    self.results_by_group.at[group_i, "MSD_std_" + str(tau * self.time_step)] = np.nan
 
         if((self.uneven_time_steps or self.limit_to_ROIs) and full_length > full_data_i):
             #need to remove the extra rows of the df b/c some tracks were filtered

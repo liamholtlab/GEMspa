@@ -114,6 +114,7 @@ class msd_diffusion:
 
             valid_track_lens = self.track_lengths[np.where(self.track_lengths[:, 1] >= min_track_length)]
             if (len(valid_track_lens) == 0):
+                self.track_intensities = np.asarray([])
                 return ()
             ids = valid_track_lens[:, 0]
 
@@ -151,6 +152,71 @@ class msd_diffusion:
 
         return MSD, MSD_std
 
+    def D_time_nofit(self, tlag=2, min_track_len=3):
+        # for each track, get the MSD at given tlag - this is time average MSD
+        # for each track, do MSD calculation
+
+        # remove tracks that are too short: < tlag+1 or user selected
+        if(min_track_len < tlag+1):
+            min_track_len=tlag+1
+        ids = self.track_lengths[np.where(self.track_lengths[:, 1] >= min_track_len)][:, 0]
+
+        if (len(ids) == 0):
+            return ()
+
+        self.D_inst = np.zeros((len(ids), 2), ) # 2 cols: track_id, D-value = MSD-at-tlag/(4*tlag)
+        for i,id in enumerate(ids):
+            cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
+            x=cur_track[:, self.tracks_x_col] * self.micron_per_px
+            y=cur_track[:, self.tracks_y_col] * self.micron_per_px
+
+            sum_diffs_sq = np.square(x[tlag:] - x[:-tlag]) + np.square(y[tlag:] - y[:-tlag]) # adjust to avoid correlation?
+            self.D_inst[i, 0] = id
+            self.D_inst[i,1] = np.mean(sum_diffs_sq)/(4*tlag*self.time_step)
+
+    def D_ens_nofit(self, tlag=2, min_track_len=3):
+        # for each frame, n, starting at frame 1 + tlag
+        # get all tracks that have values for frames from frame (n-tlag) to tlag
+        # calculate the distance between x,y at (n-tlag) and x,y at tlag
+        # average over all tracks - this is one data point (ID == the frame ending point)
+
+        # remove tracks that are too short: < tlag+1 or user selected
+        if (min_track_len < tlag + 1):
+            min_track_len = tlag + 1
+        ids = self.track_lengths[np.where(self.track_lengths[:, 1] >= min_track_len)][:, 0]
+        if (len(ids) == 0):
+            return ()
+
+        valid_tracks = self.tracks[np.isin(self.tracks[:, self.tracks_id_col], ids)]
+
+        first_frame=int(np.min(self.tracks[:,self.tracks_frame_col]))
+        last_frame = int(np.max(self.tracks[:, self.tracks_frame_col]))
+        self.D_inst_ens = np.zeros(shape=((last_frame-tlag)+1, 2))
+        for i,frame0 in enumerate(range(first_frame, (last_frame-tlag)+1, 1)):  # ( or should we go up by tlag each time to avoid correlation? )
+            # pull tracks from frame to frame+tlag
+            d_arr=[]
+            frame0_track_rows = valid_tracks[valid_tracks[:,self.tracks_frame_col]==frame0]
+            for frame0_track_row in frame0_track_rows:
+                frame1_track_row=valid_tracks[(valid_tracks[:,self.tracks_frame_col]==(frame0+tlag)) &
+                                              (valid_tracks[:,self.tracks_id_col]==frame0_track_row[self.tracks_id_col])]
+                if(len(frame1_track_row)>0):
+                    frame1_track_row=frame1_track_row[0]
+
+                    x1 = frame0_track_row[self.tracks_x_col] * self.micron_per_px
+                    y1 = frame0_track_row[self.tracks_y_col] * self.micron_per_px
+
+                    x2 = frame1_track_row[self.tracks_x_col] * self.micron_per_px
+                    y2 = frame1_track_row[self.tracks_y_col] * self.micron_per_px
+
+                    d_arr.append(np.square(x2 - x1) + np.square(y2 - y1))
+
+            self.D_inst_ens[i, 0] = frame0+tlag
+            if(len(d_arr)>0):
+                self.D_inst_ens[i, 1] = np.mean(d_arr)/(4*tlag*self.time_step)
+            else:
+                print(f"No trajectories found for frame0={frame0}")
+                self.D_inst_ens[i, 1] = -1
+
     def fill_track_lengths(self):
         # fill track length array with the track lengths
         ids = np.unique(self.tracks[:, self.tracks_id_col])
@@ -182,7 +248,7 @@ class msd_diffusion:
         if(len(ids) == 0):
             self.step_sizes=np.asarray([])
             self.angles=np.asarray([])
-            return
+            return ()
 
         print("SS/Angles number of tracks:", len(ids))
         track_lens=self.track_lengths[self.track_lengths[:,1] >= self.min_track_len_step_size][:,1]
@@ -245,6 +311,7 @@ class msd_diffusion:
 
             valid_track_lens = self.track_lengths[np.where(self.track_lengths[:, 1] >= min_track_length)]
             if (len(valid_track_lens) == 0):
+                self.msd_tracks = np.asarray([])
                 return ()
             ids=valid_track_lens[:,0]
             full_len=int(np.sum(valid_track_lens[:,1]))
@@ -369,6 +436,9 @@ class msd_diffusion:
                 cur_arr = np.concatenate((cur_arrX,cur_arrY))
                 self.ngp[i] = (np.mean(cur_arr**4) / (3 * np.mean(cur_arr**2) ** 2)) - 1
                 self.kurt[i]=kurtosis(cur_arr)
+        else:
+            self.ngp = np.asarray([])
+            self.kurt = np.asarray([])
 
             # self.ngpX = np.zeros(len(self.deltaX))
             # for i in range(len(self.deltaX)):
@@ -384,25 +454,28 @@ class msd_diffusion:
     def calculate_ensemble_average(self, limit_by_fitting=True):
         # average the MSD at each t-lag
 
-        # filter tracks by length
-        valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_ensemble - 1))]
         ensemble_average = []
-        if(len(valid_tracks)>0):
+        len_uniq=0
+        if (len(self.msd_tracks) > 0):
+            # filter tracks by length
+            valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_ensemble - 1))]
+            if(len(valid_tracks)>0):
 
-            if(limit_by_fitting):
-                max_tlag = np.max([self.tlag_cutoff_linfit_ensemble, self.tlag_cutoff_loglogfit_ensemble])
-                max_tlag = np.min([max_tlag, int(np.max(valid_tracks[:, self.msd_len_col]))])
-            else:
-                max_tlag = int(np.max(valid_tracks[:, self.msd_len_col]))
-            for tlag in range(1,max_tlag+1,1):
-                # gather all data for current tlag
-                tlag_time=tlag*self.time_step
-                cur_tlag_MSDs=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
+                if(limit_by_fitting):
+                    max_tlag = np.max([self.tlag_cutoff_linfit_ensemble, self.tlag_cutoff_loglogfit_ensemble])
+                    max_tlag = np.min([max_tlag, int(np.max(valid_tracks[:, self.msd_len_col]))])
+                else:
+                    max_tlag = int(np.max(valid_tracks[:, self.msd_len_col]))
+                for tlag in range(1,max_tlag+1,1):
+                    # gather all data for current tlag
+                    tlag_time=tlag*self.time_step
+                    cur_tlag_MSDs=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
 
-                ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs), np.std(cur_tlag_MSDs)])
+                    ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs), np.std(cur_tlag_MSDs)])
+                len_uniq=len(np.unique(valid_tracks[:, self.msd_id_col]))
 
         self.ensemble_average=np.asarray(ensemble_average)
-        return len(np.unique(valid_tracks[:,self.msd_id_col]))
+        return len_uniq
 
     def fit_msd_ensemble_alpha(self):
         #MSD(t) = L * t ^ a
@@ -412,6 +485,11 @@ class msd_diffusion:
 
         # uses ensemble average to fit for anomolous exponent
         if (len(self.ensemble_average) == 0):
+            self.anomolous_fit_rsq = 0
+            self.anomolous_fit_rmse = 0
+            self.anomolous_fit_K = 0
+            self.anomolous_fit_alpha = 0
+            self.anomolous_fit_errs = 0
             return ()
 
         stop = self.tlag_cutoff_loglogfit_ensemble
@@ -442,6 +520,10 @@ class msd_diffusion:
         # only fits up to the cutoff, self.tlag_cutoff_linfit
 
         if (len(self.ensemble_average) == 0):
+            self.ensemble_fit_rsq = 0
+            self.ensemble_fit_rmse = 0
+            self.ensemble_fit_D = 0
+            self.ensemble_fit_err = 0
             return ()
 
         stop = self.tlag_cutoff_linfit_ensemble
@@ -553,12 +635,14 @@ class msd_diffusion:
         # filter for tracks > min-length
 
         if(len(self.msd_tracks) == 0):
+            self.D_linfits = np.asarray([])
             return ()
 
         #msd_len is one less than the track len
         valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_linfit-1))]
 
         if(len(valid_tracks) == 0):
+            self.D_linfits = np.asarray([])
             return ()
 
         ids = np.unique(valid_tracks[:,self.msd_id_col])
@@ -616,12 +700,14 @@ class msd_diffusion:
         # FIT to straight line
 
         if(len(self.msd_tracks) == 0):
+            self.D_loglogfits = np.asarray([])
             return ()
 
         #msd_len is one less than the track len
         valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:, self.msd_len_col] >= (self.min_track_len_loglogfit-1))]
 
         if (len(valid_tracks) == 0):
+            self.D_loglogfits=np.asarray([])
             return ()
 
         ids = np.unique(valid_tracks[:,self.msd_id_col])
