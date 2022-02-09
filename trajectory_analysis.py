@@ -123,6 +123,10 @@ def read_movie_metadata_tif(file_name):
 def read_movie_metadata_nd2(file_name):
     with ND2Reader(file_name) as images:
         steps = images.timesteps[1:] - images.timesteps[:-1]
+        step=images.metadata['experiment']['loops'][0]['sampling_interval']
+
+        step = np.round(step, 0)
+        step = step / 1000
 
         #plt.plot(range(1,len(steps)+1), steps)
         #plt.clf()
@@ -134,7 +138,7 @@ def read_movie_metadata_nd2(file_name):
         steps=steps/1000
 
         microns_per_pixel=images.metadata['pixel_microns']
-        return (microns_per_pixel,np.min(steps),steps)
+        return [microns_per_pixel,step,steps] #np.min(steps),steps]
 
 def filter_tracks(track_data, min_len, time_steps, min_resolution):
     correct_ts = np.min(time_steps)
