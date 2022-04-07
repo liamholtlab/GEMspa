@@ -359,6 +359,10 @@ class trajectory_analysis:
                             else:
                                 rois = read_roi_file(valid_roi_file)
                             roi_name_list = get_roi_name_list(rois)
+                            if(len(roi_name_list)<len(rois)):
+                                num_invalid=len(rois)-len(roi_name_list)
+                                print(f"Error: {num_invalid} ROI(s) were not read from file (invalid ROI type): {valid_roi_file}")
+                                self.log.write(f"Error: {num_invalid} ROI(s) were not read from file (invalid ROI type): {valid_roi_file}.\n")
 
                         for roi_name in roi_name_list:
                             row[1][self._roi_col_name]=roi_name
@@ -1393,7 +1397,7 @@ class trajectory_analysis:
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
 
-        sns.pointplot(x="group_readable", y='D', data=self.data_list_with_results_full, estimator=np.median, #showfliers=False, #fliersize=0,
+        sns.pointplot(x="group_readable", y='D', data=self.data_list_with_results_full, estimator=np.median, order=labels, #showfliers=False, #fliersize=0,
                         capsize=0.02, join=False, ax=ax, color='black', scale=.8, errwidth=1.5)
 
         ax.set(xlabel=xlabel)
