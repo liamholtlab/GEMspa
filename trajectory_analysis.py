@@ -122,15 +122,20 @@ def read_movie_metadata_tif(file_name):
 
 def read_movie_metadata_nd2(file_name):
     with ND2Reader(file_name) as images:
+        if (len(images.metadata['experiment']['loops']) > 0):
+            step=images.metadata['experiment']['loops'][0]['sampling_interval']
+
+            step = np.round(step, 0)
+            step = step / 1000
+
+            #plt.plot(range(1,len(steps)+1), steps)
+            #plt.clf()
+        else:
+            #print(f"Error reading exposure from nd2 movie! {file_name}")
+            #print(images.metadata['experiment']['loops'])
+            step=0
+
         steps = images.timesteps[1:] - images.timesteps[:-1]
-        step=images.metadata['experiment']['loops'][0]['sampling_interval']
-
-        step = np.round(step, 0)
-        step = step / 1000
-
-        #plt.plot(range(1,len(steps)+1), steps)
-        #plt.clf()
-
         # round steps to the nearest ms
         steps = np.round(steps, 0)
 
@@ -239,18 +244,18 @@ class trajectory_analysis:
 
         # this is the min. track length for individual tracks
         # any tracks >= this length will be fitted to the equations:
-        # MSD(τ) = 4Dτ to get eff-D
-        # MSD(τ) = 4Dτ^α (α is the anomolous exponent, τ is the time-lag)
+        # MSD(T) = 4DT to get eff-D
+        # MSD(T) = 4DT^a (a is the anomolous exponent, T is the time-lag)
         # (*ignore the _linfit suffix here*)
         self.min_track_len_linfit = 11
 
-        # this is the number of τ (time-lag) to use to fit
+        # this is the number of T (time-lag) to use to fit
         self.tlag_cutoff_linfit = 10
 
         # when calculating ensemble average, include tracks >= this length
         self.min_track_len_ensemble = 11
 
-        # this is the number of τ (time-lag) to use to fit, when fitting the ensemble average MSD
+        # this is the number of T (time-lag) to use to fit, when fitting the ensemble average MSD
         self.tlag_cutoff_ensemble = 10
 
         self.min_track_len_step_size = 3
@@ -404,45 +409,52 @@ class trajectory_analysis:
                     csv_file = row[1][self._file_col_name]
 
                     movie_dir = row[1][self._movie_file_col_name]
-                    movie_file = movie_dir + "/" + csv_file[5:-4]  # Drop "Traj_" at beginning and ".csv" at end
-
-                    # check first for .tif, then nd2
-                    if (not movie_file.endswith(".tif")):
-                        movie_file = movie_file + ".tif"
-                    if (os.path.isfile(movie_file)):
-                        self.valid_movie_files[ind]=movie_file
-                        if (self.get_calibration_from_metadata or self.uneven_time_steps):
-                            ret_val = read_movie_metadata_tif(movie_file)
-                            # some checks for reading from tiff files - since I'm not sure if the code will always work....!
-                            if (ret_val[0] == ''):
-                                ret_val[0] = self.micron_per_px
-                                self.log.write(f"Error! Micron per pixel could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
-                            if (ret_val[1] == ''):
-                                ret_val[1] = self.time_step
-                                self.log.write(f"Error! Time step could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
-                            if (len(ret_val[2]) == 0 and self.uneven_time_steps):
-                                self.log.write(f"Error! Full time step list could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                    if(type(movie_dir) != type("")):
+                        self.valid_movie_files[ind] = ''
+                        self.log.write(f"Error! Movie directory not set in the input file.\n")
                     else:
-                        self.valid_movie_files[ind] = '' # no reading from nd2 for now.... TODO
-                        if(self.measure_track_intensities):
-                            self.log.write(f"Error! TIF Movie file not found: {movie_file} for measuring track intensities.\n")
-                        if (self.get_calibration_from_metadata or self.uneven_time_steps):
-                            movie_file = movie_dir + "/" + csv_file[5:-4] + ".nd2"
-                            if (os.path.isfile(movie_file)):
-                                ret_val = read_movie_metadata_nd2(movie_file)
-                            else:
-                                ret_val = None
-                                self.calibration_from_metadata[ind] = ''
-                                self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
-                    if (self.get_calibration_from_metadata or self.uneven_time_steps):
-                        if (ret_val):
-                            if (not self.uneven_time_steps):
-                                ret_val[2] = []  # do not use full time step info / could be messed up anyway in case of tif file
+                        movie_file = movie_dir + "/" + csv_file[5:-4]  # Drop "Traj_" at beginning and ".csv" at end
 
-                            self.calibration_from_metadata[ind] = ret_val
-                            self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
-                            if (len(ret_val[2]) > 0 and self.uneven_time_steps):
-                                self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
+                        # check first for .tif, then nd2
+                        if (not movie_file.endswith(".tif")):
+                            movie_file = movie_file + ".tif"
+                        if (os.path.isfile(movie_file)):
+                            self.valid_movie_files[ind]=movie_file
+                            if (self.get_calibration_from_metadata or self.uneven_time_steps):
+                                ret_val = read_movie_metadata_tif(movie_file)
+                                # some checks for reading from tiff files - since I'm not sure if the code will always work....!
+                                if (ret_val[0] == ''):
+                                    ret_val[0] = self.micron_per_px
+                                    self.log.write(f"Error! Micron per pixel could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                                if (ret_val[1] == ''):
+                                    ret_val[1] = self.time_step
+                                    self.log.write(f"Error! Time step could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                                if (len(ret_val[2]) == 0 and self.uneven_time_steps):
+                                    self.log.write(f"Error! Full time step list could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                        else:
+                            self.valid_movie_files[ind] = '' # no reading from nd2 for now.... TODO
+                            if(self.measure_track_intensities):
+                                self.log.write(f"Error! TIF Movie file not found: {movie_file} for measuring track intensities.\n")
+                            if (self.get_calibration_from_metadata or self.uneven_time_steps):
+                                movie_file = movie_dir + "/" + csv_file[5:-4] + ".nd2"
+                                if (os.path.isfile(movie_file)):
+                                    ret_val = read_movie_metadata_nd2(movie_file)
+                                else:
+                                    ret_val = None
+                                    self.calibration_from_metadata[ind] = ''
+                                    self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
+                        if (self.get_calibration_from_metadata or self.uneven_time_steps):
+                            if (ret_val):
+                                if (not self.uneven_time_steps):
+                                    ret_val[2] = []  # do not use full time step info / could be messed up anyway in case of tif file
+
+                                self.calibration_from_metadata[ind] = ret_val
+                                self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
+
+                                if (ret_val[1] == 0):
+                                    self.log.write(f"Movie file {movie_file}: exposure (time step) not read from file.  Falling back to default settings.\n")
+                                if (len(ret_val[2]) > 0 and self.uneven_time_steps):
+                                    self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
 
             # group by the label columns
             # set_index will throw ValueError if index col has repeats
@@ -595,7 +607,7 @@ class trajectory_analysis:
             plt.scatter(x_val, y_val, color='black', alpha=0.6, s=18)
 
         ax.legend()
-        ax.set_xlabel('$τ$ $(s)$')
+        ax.set_xlabel('$T$ $(s)$')
         ax.set_ylabel('$<cos(θ)>$')
         if(max_tlag > 0):
             ax.set_xlim(0, max_tlag)
@@ -643,9 +655,9 @@ class trajectory_analysis:
 
             # loglog plot and anomolous exp
             #ax.axhline(np.log(row[1]['ensemble_loglog_K']*4)) #np.exp(popt[1])/4
-            ax.scatter(x_vals, y_vals, label="{}, α≈{}".format(group, round(alpha, 2)))
+            ax.scatter(x_vals, y_vals, label="{}, a≈{}".format(group, round(alpha, 2)))
 
-        ax.set_xlabel('$τ$ $(s)$')
+        ax.set_xlabel('$T$ $(s)$')
         ax.set_ylabel('$MSD_{ens}$ ($μm^{2}$)')
 
         ax.set_xscale('log', base=10)
@@ -725,7 +737,7 @@ class trajectory_analysis:
                 cur_ax.set_title(group)
 
                 cur_ax.set_xlabel('$log(D_{100ms})$')
-                cur_ax.set_ylabel('α')
+                cur_ax.set_ylabel('a')
 
                 (xlim_min, xlim_max) = cur_ax.get_xlim()
                 (ylim_min, ylim_max) = cur_ax.get_ylim()
@@ -941,7 +953,7 @@ class trajectory_analysis:
                                 sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False,
                                              stat="probability", label=str(cur_data[self._file_col_name].iloc[0])+roi_str, alpha=0.6)
 
-                    ax.set_xlabel("α")
+                    ax.set_xlabel("a")
                     if (plot_type == 'gkde'):
                         ax.set_ylabel("Density")
                     else:
@@ -952,7 +964,7 @@ class trajectory_analysis:
                     fig.clf()
                     plt.close(fig)
 
-        ax3.set_xlabel("α")
+        ax3.set_xlabel("a")
         if (plot_type == 'gkde'):
             ax3.set_ylabel("Density")
         else:
@@ -1786,7 +1798,8 @@ class trajectory_analysis:
                         if(len(step_sizes)>0):
                             msd_diff_obj.time_step=np.min(step_sizes)
                         else:
-                            msd_diff_obj.time_step=exposure
+                            if(exposure > 0):
+                                msd_diff_obj.time_step=exposure
 
                         # if we have varying step sizes, must filter tracks
                         if(self.uneven_time_steps):
@@ -2092,7 +2105,7 @@ class trajectory_analysis:
 
                     print(cur_file, data[self._roi_col_name])
 
-                    if(self.measure_track_intensities and index in self.valid_movie_files):
+                    if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         cur_tif_movie = io.imread(self.valid_movie_files[index])
 
                     roi_area=''
@@ -2123,7 +2136,8 @@ class trajectory_analysis:
                             if (len(step_sizes) > 0):
                                 msd_diff_obj.time_step = np.min(step_sizes)
                             else:
-                                msd_diff_obj.time_step = exposure
+                                if (exposure > 0):
+                                    msd_diff_obj.time_step = exposure
 
                             #if we have varying step sizes, must filter tracks
                             if (self.uneven_time_steps):
@@ -2168,7 +2182,7 @@ class trajectory_analysis:
                         msd_diff_obj.radius_of_gyration()
                     msd_diff_obj.average_velocity()
 
-                    if(self.measure_track_intensities and index in self.valid_movie_files):
+                    if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         # remove tracks by length
                         msd_diff_obj.fill_track_intensities(cur_tif_movie, self.intensity_radius)
 
@@ -2248,7 +2262,7 @@ class trajectory_analysis:
                     self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_velocity'] = (
                         msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0], msd_diff_obj.D_linfits[:,0])][:,1])
 
-                    if(self.measure_track_intensities and index in self.valid_movie_files):
+                    if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_mean'] = (
                             msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0], msd_diff_obj.D_linfits[:, 0])][:, 1])
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_std'] = (
