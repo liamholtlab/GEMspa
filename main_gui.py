@@ -6,6 +6,9 @@ import os
 import trajectory_analysis as tja
 import re
 
+#class RainbowTracksDialog(wx.Dialog):
+
+
 class ConditionsDialog(wx.Dialog):
     def __init__(self):
         super().__init__(parent=None, title='Experiment Conditions', size=(600, 600))
@@ -597,9 +600,11 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.plot_distribution_alpha(plot_type='', bin_size=0.1)
 
                     if(limit_with_rois):
-                        traj_an.make_plot_roi_area()
+                        pass
+                        #traj_an.make_plot_roi_area()
                     if(measure_gem_intensities):
-                        traj_an.make_plot_intensity()
+                        pass
+                        #traj_an.make_plot_intensity()
 
                     self.statusbar.SetStatusText('Finished!')
                     print("Finished!")

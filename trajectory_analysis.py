@@ -607,8 +607,8 @@ class trajectory_analysis:
             plt.scatter(x_val, y_val, color='black', alpha=0.6, s=18)
 
         ax.legend()
-        ax.set_xlabel('$T$ $(s)$')
-        ax.set_ylabel('$<cos(θ)>$')
+        ax.set_xlabel(r'$\tau$ $(s)$')
+        ax.set_ylabel(r'$<cos \theta >$')
         if(max_tlag > 0):
             ax.set_xlim(0, max_tlag)
         fig.tight_layout()
@@ -657,8 +657,8 @@ class trajectory_analysis:
             #ax.axhline(np.log(row[1]['ensemble_loglog_K']*4)) #np.exp(popt[1])/4
             ax.scatter(x_vals, y_vals, label="{}, a≈{}".format(group, round(alpha, 2)))
 
-        ax.set_xlabel('$T$ $(s)$')
-        ax.set_ylabel('$MSD_{ens}$ ($μm^{2}$)')
+        ax.set_xlabel(r'$\tau$ $(s)$')
+        ax.set_ylabel(r'$MSD_{ens}$ ($\mu m^{2}$)')
 
         ax.set_xscale('log', base=10)
         ax.set_yscale('log', base=10)
@@ -677,6 +677,8 @@ class trajectory_analysis:
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
         self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        d_label = round(self.time_step * 1000) * self.tlag_cutoff_linfit
 
         if (label_order):
             label_order_ = []
@@ -736,8 +738,8 @@ class trajectory_analysis:
 
                 cur_ax.set_title(group)
 
-                cur_ax.set_xlabel('$log(D_{100ms})$')
-                cur_ax.set_ylabel('a')
+                cur_ax.set_xlabel(f"$log(D_{{{d_label}ms}})$")
+                cur_ax.set_ylabel(r'$\alpha$')
 
                 (xlim_min, xlim_max) = cur_ax.get_xlim()
                 (ylim_min, ylim_max) = cur_ax.get_ylim()
@@ -790,6 +792,8 @@ class trajectory_analysis:
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
         self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        d_label=round(self.time_step*1000)*self.tlag_cutoff_linfit
 
         if (label_order):
             label_order_ = []
@@ -856,9 +860,9 @@ class trajectory_analysis:
                                 sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False,
                                              stat="probability", label=str(cur_data[self._file_col_name].iloc[0])+roi_str, alpha=0.6)
                     if (logscale):
-                        ax.set_xlabel("$log(D_{eff}$ $(μm^{2}/s))$")
+                        ax.set_xlabel(f"$log(D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s))$")
                     else:
-                        ax.set_xlabel("$D_{eff}$ $(μm^{2}/s)$")
+                        ax.set_xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
                     if (plot_type == 'gkde'):
                         ax.set_ylabel("Density")
@@ -867,15 +871,17 @@ class trajectory_analysis:
 
                     if(make_legend):
                         ax.legend()
+
+                    fig.tight_layout()
                     fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
                     fig.clf()
                     plt.close(fig)
 
         #ax3.set_xlim(ax3.get_xlim()[0], 2)
         if(logscale):
-            ax3.set_xlabel("$log(D_{eff}$ $(μm^{2}/s))$")
+            ax3.set_xlabel(f"$log(D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
         else:
-            ax3.set_xlabel("$D_{eff}$ $(μm^{2}/s)$")
+            ax3.set_xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
         if (plot_type == 'gkde'):
             ax3.set_ylabel("Density")
@@ -883,10 +889,12 @@ class trajectory_analysis:
             ax3.set_ylabel("Fraction")
         ax3.legend()
 
+        fig3.tight_layout()
         if(logscale):
             fig3.savefig(self.results_dir + '/combined_allgroups_logDeff_' + plot_type + '.pdf')
         else:
-         fig3.savefig(self.results_dir + '/combined_allgroups_Deff_' + plot_type + '.pdf')
+            fig3.savefig(self.results_dir + '/combined_allgroups_Deff_' + plot_type + '.pdf')
+
         fig3.clf()
         plt.close(fig3)
 
@@ -953,24 +961,27 @@ class trajectory_analysis:
                                 sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False,
                                              stat="probability", label=str(cur_data[self._file_col_name].iloc[0])+roi_str, alpha=0.6)
 
-                    ax.set_xlabel("a")
+                    ax.set_xlabel(r"$\alpha$")
                     if (plot_type == 'gkde'):
                         ax.set_ylabel("Density")
                     else:
                         ax.set_ylabel("Fraction")
                     if(make_legend):
                         ax.legend()
+
+                    fig.tight_layout()
                     fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
                     fig.clf()
                     plt.close(fig)
 
-        ax3.set_xlabel("a")
+        ax3.set_xlabel(r"$\alpha$")
         if (plot_type == 'gkde'):
             ax3.set_ylabel("Density")
         else:
             ax3.set_ylabel("Fraction")
         ax3.legend()
 
+        fig3.tight_layout()
         fig3.savefig(self.results_dir + '/combined_allgroups_alpha_' + plot_type + '.pdf')
         fig3.clf()
         plt.close(fig3)
@@ -1381,6 +1392,8 @@ class trajectory_analysis:
 
         self.data_list_with_results_full = pd.read_csv(self.results_dir + '/'+"all_data.txt",index_col=0,sep='\t')
 
+        d_label = round(self.time_step * 1000) * self.tlag_cutoff_linfit
+
         if(len(self.data_list_with_results_full) == 0):
             print("Error: No data.")
             return ()
@@ -1416,7 +1429,7 @@ class trajectory_analysis:
         if (ylabel != ''):
             ax.set(ylabel=ylabel)
         else:
-            ax.set(ylabel="$D_{eff}$ $(μm^{2}/s)$")
+            ax.set(ylabel=f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
         plt.xticks(rotation='vertical')
         plt.tight_layout()
@@ -1434,6 +1447,8 @@ class trajectory_analysis:
 
         self.data_list_with_results['group']=self.data_list_with_results['group'].astype('str')
         self.data_list_with_results['group_readable'] = self.data_list_with_results['group_readable'].astype('str')
+
+        d_label=round(self.time_step*1000)*self.tlag_cutoff_linfit
 
 
         if(label_order):
@@ -1475,7 +1490,7 @@ class trajectory_analysis:
             if (ylabel != ''):
                 ax.set(ylabel = ylabel)
             else:
-                ax.set(ylabel = "$median$ $D_{eff}$ $(μm^{2}/s)$")
+                ax.set(ylabel = f"$median$ $D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
             plt.xticks(rotation='vertical')
             plt.tight_layout()
             fig.savefig(self.results_dir + '/summary_'+y_col+'.pdf')
@@ -1486,6 +1501,8 @@ class trajectory_analysis:
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
         self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        d_label = round(self.time_step * 1000) * self.tlag_cutoff_linfit
 
         if (label_order):
             label_order_ = []
@@ -1517,7 +1534,7 @@ class trajectory_analysis:
         l = ax.legend()
         l.set_title('')
         #ax.set_xlim(ax.get_xlim()[0],4)
-        plt.xlabel("$D_{eff}$ $(μm^{2}/s)$")
+        plt.xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
         plt.ylabel('Ave Px Intensity')
         plt.tight_layout()
         fig.savefig(self.results_dir + f"/D_vs_intensity.pdf")
@@ -1534,6 +1551,8 @@ class trajectory_analysis:
 
         self.data_list_with_results['group'] = self.data_list_with_results['group'].astype('str')
         self.data_list_with_results['group_readable'] = self.data_list_with_results['group_readable'].astype('str')
+
+        d_label = round(self.time_step * 1000) * self.tlag_cutoff_linfit
 
         if (label_order):
             label_order_ = []
@@ -1574,7 +1593,7 @@ class trajectory_analysis:
             if (ylabel != ''):
                 ax.set(ylabel=ylabel)
             else:
-                ax.set(ylabel="$median$ $D_{eff}$ $(μm^{2}/s)$")
+                ax.set(ylabel=f"$median$ $D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
             plt.tight_layout()
             fig.savefig(self.results_dir + f"/roi-area_vs_{y_col}.pdf")
