@@ -32,6 +32,7 @@ class rainbow_tracks:
         self.tracks_color_val_col=3
 
         self.DPI = 300
+        self.figsize_div=100
 
         # TODO - add rainbow tracks for... relative angle - 0 to 180 deg
         # TODO - time colored rainbow tracks
@@ -48,7 +49,7 @@ class rainbow_tracks:
                          blue_val=self.blue_D,
                          red_val=self.red_D)
 
-    def plot_step_sizes(self, img_file, track_data, output_file, min_length=None):
+    def plot_step_sizes(self, img_file, track_data, output_file, min_length=3):
 
         self.plot_tracks_multi(img_file,
                          track_data,
@@ -70,7 +71,9 @@ class rainbow_tracks:
                           red_val):
 
         bk_img = io.imread(img_file)
-        fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.DPI)
+        fig = plt.figure(figsize=(bk_img.shape[1] / self.figsize_div,
+                                  bk_img.shape[0] / self.figsize_div),
+                         dpi=self.DPI)
         ax = fig.add_subplot(1, 1, 1)
         ax.axis("off")
         ax.imshow(bk_img, cmap="gray")
@@ -113,7 +116,9 @@ class rainbow_tracks:
                     red_val):
 
         bk_img = io.imread(img_file)
-        fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.DPI) # TODO change this what happens??
+        fig = plt.figure(figsize=(bk_img.shape[1] / self.figsize_div,
+                                  bk_img.shape[0] / self.figsize_div),
+                         dpi=self.DPI)
         ax = fig.add_subplot(1, 1, 1)
         ax.axis("off")
         ax.imshow(bk_img, cmap="gray")
@@ -134,4 +139,94 @@ class rainbow_tracks:
         fig.tight_layout()
         fig.savefig(output_file, dpi=self.DPI)
         plt.close(fig)
+
+    def plot_time(self,
+                  img_file,
+                  track_data,
+                  output_file,
+                  reverse_coords=False,
+                  min_length=3):
+
+        bk_img = io.imread(img_file)
+        fig = plt.figure(figsize=(bk_img.shape[1] / self.figsize_div,
+                                  bk_img.shape[0] / self.figsize_div),
+                         dpi=self.DPI)
+        ax = fig.add_subplot(1, 1, 1)
+        ax.axis("off")
+        ax.imshow(bk_img, cmap="gray")
+
+        ids = np.unique(track_data[:, self.tracks_id_col])
+        for id in ids:
+            cur_track = track_data[track_data[:, self.tracks_id_col] == id]
+            if (min_length == None or len(cur_track) >= min_length):
+                max_step = len(cur_track)
+                for step_i in range(1, max_step, 1):
+                    show_color = step_i / max_step
+                    if (reverse_coords):
+                        ax.plot(
+                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                            '-', color=cm.jet(show_color), linewidth=self.line_width)
+
+                    else:
+                        ax.plot(
+                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                            '-', color=cm.jet(show_color), linewidth=self.line_width)
+
+
+
+        if(self.time_label_by_track_start):
+            for id in ids:
+                cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
+                max_step = len(cur_track)
+                for step_i in range(1, max_step, 1):
+
+                    show_color = step_i / max_step
+
+                    if (reverse_coords):
+                        ax.plot(
+                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                            '-', color=cm.jet(show_color), linewidth=lw)
+
+                    else:
+                        ax.plot(
+                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                            '-', color=cm.jet(show_color), linewidth=lw)
+                    # if (reverse_coords):
+                    #     ax.text(cur_track[0, self.tracks_y_col],
+                    #         cur_track[0, self.tracks_x_col], str(id), color='red')
+                    # else:
+                    #     pass
+        else:
+            valid_tracks = self.tracks[np.isin(self.tracks[:,self.tracks_id_col], ids)]
+            min_frame=valid_tracks[:,self.tracks_frame_col].min()
+            max_frame=valid_tracks[:,self.tracks_frame_col].max()
+
+            for id in ids:
+                cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
+
+                for step_i in range(1,len(cur_track),1):
+                    cur_frame=cur_track[step_i,self.tracks_frame_col]
+                    if (cur_frame < min_frame):
+                        cur_frame = min_frame
+                    if (cur_frame > max_frame):
+                        cur_frame = max_frame
+
+                    show_color=cur_frame/max_frame
+
+                    if(reverse_coords):
+                        ax.plot(
+                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                            '-', color=cm.jet(show_color), linewidth=lw)
+                    else:
+                        ax.plot(
+                            [cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
+                            [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
+                            '-', color=cm.jet(show_color), linewidth=lw)
+
+
 

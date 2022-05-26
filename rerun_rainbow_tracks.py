@@ -7,7 +7,6 @@ import numpy as np
 dir_input = "/Users/snk218/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/results9"
 dir_output = "/Users/snk218/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/results9/test_rt"
 
-
 def read_track_data_file(file_name):
     track_data_cols=['Trajectory', 'Frame', 'x', 'y']
     ext = (os.path.splitext(file_name)[1]).lower()
@@ -27,7 +26,25 @@ def read_track_data_file(file_name):
     track_data_df = track_data_df[track_data_cols]
     return track_data_df
 
-def make_rainbow_tracks(input_dir, tif_prefix, output_dir):
+def fill_track_sizes(tracks,micron_per_px):
+    # add column to tracks array containing the step size for each step of each track (distance between points)
+    # step size in *microns*
+    tracks = np.append(tracks, np.zeros((len(tracks),1)), axis=1)
+    ids = np.unique(tracks[:, 0]) # 0 is the track id column
+    ss_i=0
+    for i,id in enumerate(ids):
+        cur_track = tracks[np.where(tracks[:, 0] == id)]
+        ss_i+=1
+        for j in range(1,len(cur_track),1):
+            d = np.sqrt((cur_track[j, 2] - cur_track[j-1, 2]) ** 2 + (cur_track[j, 3] - cur_track[j-1, 3]) ** 2)
+            tracks[ss_i,4] = d * micron_per_px
+            ss_i+=1
+    return tracks
+
+def make_rainbow_tracks(input_dir,
+                        tif_prefix,
+                        output_dir,
+                        micron_per_px):
     # input_dir is the directory where the GEMSpa output files are located
     # output_dir is the directory to SAVE the tif files (rainbow tracks drawn on images)
     # image locations are read from the GEMSpa output files
@@ -67,7 +84,14 @@ def make_rainbow_tracks(input_dir, tif_prefix, output_dir):
                 rainbow_tr.plot_diffusion(img_file,
                                           np.asarray(tracks_df),
                                           np.asarray(cur_all_data_df[['Trajectory','D']]),
-                                          output_dir+'/'+out_file) #, min_length=None)
+                                          output_dir+'/'+out_file)
+                out_file = os.path.split(img_file)[1][:-4] + '_tracks_ss.tif'
+                tracks_arr=fill_track_sizes(np.asarray(tracks_df), micron_per_px)
+                rainbow_tr.plot_step_sizes(img_file,
+                                           tracks_arr,
+                                           output_dir + '/' + out_file)
+
+
         else:
             print(f"Error! Image file not found: {img_file} for rainbow tracks/ROIs.\n")
 
@@ -75,5 +99,5 @@ def make_rainbow_tracks(input_dir, tif_prefix, output_dir):
 
 
 
-make_rainbow_tracks(dir_input, "BG_", dir_output)
+make_rainbow_tracks(dir_input, "BG_", dir_output, 0.11)
 
