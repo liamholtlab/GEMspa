@@ -4,8 +4,10 @@ import pandas as pd
 import os
 import numpy as np
 
-dir_input = "/Users/snk218/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/results9"
-dir_output = "/Users/snk218/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/results9/test_rt"
+import getpass
+cur_user=getpass.getuser()
+dir_input = f"/Users/{cur_user}/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/results9"
+dir_output = f"/Users/{cur_user}/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/results9/test_rt"
 
 def read_track_data_file(file_name):
     track_data_cols=['Trajectory', 'Frame', 'x', 'y']

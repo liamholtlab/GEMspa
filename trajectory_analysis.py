@@ -86,6 +86,8 @@ def make_mask_from_roi(rois, roi_name, img_shape):
                 final_img[rr, cc] = 1
             elif (roi['type'] == 'rectangle'):
                 rr, cc = draw.rectangle((roi['top'], roi['left']), extent=(roi['height'], roi['width']), shape=img_shape)
+                rr=rr.astype('int')
+                cc = cc.astype('int')
                 final_img[rr, cc] = 1
             elif (roi['type'] == 'oval'):
                 rr, cc = draw.ellipse(roi['top'] + roi['height'] / 2, roi['left'] + roi['width'] / 2, roi['height'] / 2, roi['width'] / 2, shape=img_shape)
