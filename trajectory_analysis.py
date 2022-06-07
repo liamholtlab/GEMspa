@@ -1619,6 +1619,7 @@ class trajectory_analysis:
                 return pd.DataFrame()
 
         track_data_df = track_data_df[[self.traj_id_col, self.traj_frame_col, self.traj_x_col, self.traj_y_col]]
+        track_data_df = track_data_df.dropna()
         return track_data_df
 
     def filter_ROI(self, index, roi_name, df):
