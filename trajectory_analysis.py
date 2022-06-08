@@ -1933,12 +1933,12 @@ class trajectory_analysis:
             self.data_list_with_NGP.to_csv(self.results_dir + '/' + "NGP.txt", sep='\t')
 
         if (self.uneven_time_steps or self.limit_to_ROIs):
-            self.data_list_with_step_sizes_full=self.data_list_with_step_sizes_full.replace('', np.NaN)
+            self.data_list_with_step_sizes_full.replace('', np.NaN, inplace=True)
             self.data_list_with_step_sizes_full.dropna(axis=1,how='all',inplace=True)
             self.data_list_with_step_sizes_full.dropna(axis=0,subset=['id',],inplace=True)
             self.data_list_with_step_sizes_full.dropna(axis=0, subset=['group',], inplace=True)
 
-            self.data_list_with_angles = self.data_list_with_angles.replace('', np.NaN)
+            self.data_list_with_angles.replace('', np.NaN, inplace=True)
             self.data_list_with_angles.dropna(axis=1, how='all', inplace=True)
             self.data_list_with_angles.dropna(axis=0, subset=['id', ], inplace=True)
             self.data_list_with_angles.dropna(axis=0, subset=['group',], inplace=True)
