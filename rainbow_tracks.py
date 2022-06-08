@@ -27,15 +27,15 @@ class rainbow_tracks:
         self.time_label_by_track_start=True
 
         self.tracks_id_col=0
-        self.tracks_x_col=1
-        self.tracks_y_col=2
-        self.tracks_color_val_col=3
+        self.tracks_frame_col=1
+        self.tracks_x_col=2
+        self.tracks_y_col=3
+        self.tracks_color_val_col=4
 
         self.DPI = 300
         self.figsize_div=100
 
         # TODO - add rainbow tracks for... relative angle - 0 to 180 deg
-        # TODO - time colored rainbow tracks
 
     def plot_diffusion(self, img_file, track_data, diff_data, output_file, min_length=None):
 
@@ -156,77 +156,47 @@ class rainbow_tracks:
         ax.imshow(bk_img, cmap="gray")
 
         ids = np.unique(track_data[:, self.tracks_id_col])
-        for id in ids:
-            cur_track = track_data[track_data[:, self.tracks_id_col] == id]
-            if (min_length == None or len(cur_track) >= min_length):
-                max_step = len(cur_track)
-                for step_i in range(1, max_step, 1):
-                    show_color = step_i / max_step
-                    if (reverse_coords):
-                        ax.plot(
-                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
-                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
-                            '-', color=cm.jet(show_color), linewidth=self.line_width)
 
-                    else:
-                        ax.plot(
-                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
-                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
-                            '-', color=cm.jet(show_color), linewidth=self.line_width)
-
-
-
-        if(self.time_label_by_track_start):
+        if (self.time_label_by_track_start):
             for id in ids:
-                cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
-                max_step = len(cur_track)
-                for step_i in range(1, max_step, 1):
+                cur_track = track_data[track_data[:, self.tracks_id_col] == id]
+                if (min_length == None or len(cur_track) >= min_length):
+                    max_step = len(cur_track)
+                    for step_i in range(1, max_step, 1):
+                        show_color = step_i / max_step
+                        if (reverse_coords):
+                            ax.plot(
+                                [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                                [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                                '-', color=cm.jet(show_color), linewidth=self.line_width)
 
-                    show_color = step_i / max_step
-
-                    if (reverse_coords):
-                        ax.plot(
-                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
-                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
-                            '-', color=cm.jet(show_color), linewidth=lw)
-
-                    else:
-                        ax.plot(
-                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
-                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
-                            '-', color=cm.jet(show_color), linewidth=lw)
-                    # if (reverse_coords):
-                    #     ax.text(cur_track[0, self.tracks_y_col],
-                    #         cur_track[0, self.tracks_x_col], str(id), color='red')
-                    # else:
-                    #     pass
+                        else:
+                            ax.plot(
+                                [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                                [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                                '-', color=cm.jet(show_color), linewidth=self.line_width)
         else:
-            valid_tracks = self.tracks[np.isin(self.tracks[:,self.tracks_id_col], ids)]
-            min_frame=valid_tracks[:,self.tracks_frame_col].min()
-            max_frame=valid_tracks[:,self.tracks_frame_col].max()
+            min_frame = track_data[:, self.tracks_frame_col].min()
+            max_frame = track_data[:, self.tracks_frame_col].max()
 
             for id in ids:
-                cur_track = self.tracks[self.tracks[:, self.tracks_id_col] == id]
+                cur_track = track_data[track_data[:, self.tracks_id_col] == id]
 
-                for step_i in range(1,len(cur_track),1):
-                    cur_frame=cur_track[step_i,self.tracks_frame_col]
-                    if (cur_frame < min_frame):
-                        cur_frame = min_frame
-                    if (cur_frame > max_frame):
-                        cur_frame = max_frame
+                for step_i in range(1, len(cur_track), 1):
+                    cur_frame = cur_track[step_i, self.tracks_frame_col]
+                    show_color = cur_frame / max_frame
 
-                    show_color=cur_frame/max_frame
-
-                    if(reverse_coords):
+                    if (reverse_coords):
                         ax.plot(
                             [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
                             [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
-                            '-', color=cm.jet(show_color), linewidth=lw)
+                            '-', color=cm.jet(show_color), linewidth=self.line_width)
                     else:
                         ax.plot(
-                            [cur_track[step_i-1,self.tracks_x_col],cur_track[step_i,self.tracks_x_col]],
-                            [cur_track[step_i-1,self.tracks_y_col],cur_track[step_i,self.tracks_y_col]],
-                            '-', color=cm.jet(show_color), linewidth=lw)
+                            [cur_track[step_i - 1, self.tracks_x_col], cur_track[step_i, self.tracks_x_col]],
+                            [cur_track[step_i - 1, self.tracks_y_col], cur_track[step_i, self.tracks_y_col]],
+                            '-', color=cm.jet(show_color), linewidth=self.line_width)
 
-
-
+        fig.tight_layout()
+        fig.savefig(output_file, dpi=self.DPI)
+        plt.close(fig)

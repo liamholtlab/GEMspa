@@ -230,7 +230,7 @@ class CheckMoviesMainFrame(wx.Frame):
 
                 # difference in sampling interval?  (I think it is the average of the full time step list)
                 elif(abs(ret_vals[2] - self.expected_time_step) > self.time_resolution):
-                    ret_str += f"'sampling_interval' [{ret_vals[2]} ms] does not match expected time step."
+                    ret_str += f"'sampling_interval' [{ret_vals[2]} ms] does not match expected time step.\n"
 
                 # full time step list: are any differences greater than the resolution?
                 time_step_diffs=np.abs(ret_vals[3]-self.expected_time_step)
