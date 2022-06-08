@@ -78,15 +78,15 @@ def read_movie_metadata_nd2(file_name):
 class CheckMoviesMainFrame(wx.Frame):
 
     def __init__(self):
-        super().__init__(None, -1, 'Verify Time Intervals for nd2 files', size=(900,600))
+        super().__init__(None, -1, 'Verify Time Intervals for nd2 files', size=(900,625))
 
         self.default_dir=os.getcwd()
 
-        self.top_panel = wx.Panel(self, size=(900,600))
+        self.top_panel = wx.Panel(self, size=(900,625))
 
-        self.left_panel = wx.Panel(self.top_panel, -1, size=(450,600))
+        self.left_panel = wx.Panel(self.top_panel, -1, size=(450,625))
 
-        self.right_panel = wx.Panel(self.top_panel, -1, size=(450,600))
+        self.right_panel = wx.Panel(self.top_panel, -1, size=(450,625))
         self.right_panel.SetBackgroundColour('#6f8089')
 
         self.output_text = wx.TextCtrl(self.right_panel, -1, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(450,570))
