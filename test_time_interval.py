@@ -238,9 +238,9 @@ class CheckMoviesMainFrame(wx.Frame):
                     ret_str += f"Some image time steps do not match expected time step.  Values found (sec): {np.unique(ret_vals[3])}\n"
 
                 if(verbose):
-                    print(f"Cal: {np.round(ret_vals[0], 3)}, Time-step: {ret_vals[1]} ms")
-                    print(f"All steps: {ret_vals[2]}")
-                    print(f"Mean: {np.round(np.mean(ret_vals[2]), 3)}")
+                    print(f"Cal: {np.round(ret_vals[1], 3)}, Time-step: {ret_vals[2]} ms")
+                    print(f"All steps: {ret_vals[3]}")
+                    print(f"Mean: {np.round(np.mean(ret_vals[3]), 3)}")
 
                 # read_movie_nd2(movie_file)
             else:
