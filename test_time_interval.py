@@ -212,7 +212,7 @@ class CheckMoviesMainFrame(wx.Frame):
         self.output_text.flush()
         self.output_text.SaveFile(self.log_file)
 
-    def check_dir(self, dir_to_check, verbose=False):
+    def check_dir(self, dir_to_check, verbose=True):
         full_ret_str=""
 
         extens = 'nd2'  # 'tif'
