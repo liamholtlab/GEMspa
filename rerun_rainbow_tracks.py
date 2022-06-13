@@ -43,6 +43,21 @@ def fill_track_sizes(tracks,micron_per_px):
             ss_i+=1
     return tracks
 
+# def fill_track_angles(tracks):
+#     # add column to tracks array containing the angle for each step of each track
+#     # angle in *degrees* (0-180)
+#     tracks = np.append(tracks, np.zeros((len(tracks),1)), axis=1)
+#     ids = np.unique(tracks[:, 0]) # 0 is the track id column
+#     ss_i=0
+#     for i,id in enumerate(ids):
+#         cur_track = tracks[np.where(tracks[:, 0] == id)]
+#         ss_i+=1
+#         for j in range(1,len(cur_track),1):
+#             d = np.sqrt((cur_track[j, 2] - cur_track[j-1, 2]) ** 2 + (cur_track[j, 3] - cur_track[j-1, 3]) ** 2)
+#             tracks[ss_i,4] = d * micron_per_px
+#             ss_i+=1
+#     return tracks
+
 def make_rainbow_tracks(input_dir,
                         tif_prefix,
                         output_dir,

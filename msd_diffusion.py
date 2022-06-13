@@ -294,8 +294,9 @@ class msd_diffusion:
                     for theta_i,vec_i in enumerate(range(0, len(vecs)-tlag, tlag)):
                         if(np.linalg.norm(vecs[vec_i]) == 0 or np.linalg.norm(vecs[vec_i+tlag]) == 0):
                             print("norm of vec is 0: id=", id)
-                            print(np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag])))))
-                        theta[theta_i] = np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag]))))
+                            #print(np.rad2deg(np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag])))))
+                        theta[theta_i] = np.nan_to_num(np.rad2deg(
+                            np.arccos(np.dot(vecs[vec_i],vecs[vec_i+tlag]) / (np.linalg.norm(vecs[vec_i]) * np.linalg.norm(vecs[vec_i+tlag])))))
                     self.angles[i][angle_start_arr[i]:angle_start_arr[i]+len(theta)] = theta
 
                     angle_start_arr[i] += len(theta)
@@ -499,13 +500,13 @@ class msd_diffusion:
 
         linear_fn_v = np.vectorize(linear_fn)
 
-        popt, pcov = curve_fit(linear_fn, np.log(self.ensemble_average[:stop, 0]), np.log(self.ensemble_average[:stop, 1]),
+        popt, pcov = curve_fit(linear_fn, np.log(self.ensemble_average[:stop, 0]), np.nan_to_num(np.log(self.ensemble_average[:stop, 1])),
                                p0=[self.initial_guess_aexp, np.log(4*self.initial_guess_linfit)])
 
-        residuals = np.log(self.ensemble_average[:stop, 1]) - linear_fn_v(np.log(self.ensemble_average[:stop, 0]), popt[0], popt[1])
+        residuals = np.nan_to_num(np.log(self.ensemble_average[:stop, 1])) - linear_fn_v(np.log(self.ensemble_average[:stop, 0]), popt[0], popt[1])
         ss_res = np.sum(residuals ** 2)
         rmse = np.mean(residuals ** 2) ** 0.5
-        ss_tot = np.sum((np.log(self.ensemble_average[:stop, 1]) - np.mean(np.log(self.ensemble_average[:stop, 1]))) ** 2)
+        ss_tot = np.sum( ( np.nan_to_num(np.log(self.ensemble_average[:stop, 1])) - np.mean( np.nan_to_num(np.log(self.ensemble_average[:stop, 1])) ) ) ** 2 )
 
         r_squared = 1 - (ss_res / ss_tot)
 
@@ -721,12 +722,16 @@ class msd_diffusion:
                 return m * x + b
             linear_fn_v = np.vectorize(linear_fn)
 
-            popt, pcov = curve_fit(linear_fn, np.log(cur_track[1:stop,self.msd_t_col]), np.log(cur_track[1:stop,self.msd_msd_col]),
+            #a = np.asarray(np.log(cur_track[1:stop,self.msd_msd_col]), dtype=float, order=None)
+            #if not np.isfinite(a).all():
+            #    raise ValueError("array must not contain infs or NaNs")
+
+            popt, pcov = curve_fit(linear_fn, np.log(cur_track[1:stop,self.msd_t_col]), np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])),
                                    p0=[self.initial_guess_aexp,np.log(4*self.initial_guess_linfit),])
-            residuals = np.log(cur_track[1:stop,self.msd_msd_col]) - linear_fn_v(np.log(cur_track[1:stop,self.msd_t_col]), popt[0],popt[1])
+            residuals = np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])) - linear_fn_v(np.log(cur_track[1:stop,self.msd_t_col]), popt[0],popt[1])
             ss_res = np.sum(residuals ** 2)
             rmse = np.mean(residuals**2)**0.5
-            ss_tot = np.sum((np.log(cur_track[1:stop,self.msd_msd_col]) - np.mean(np.log(cur_track[1:stop,self.msd_msd_col]))) ** 2)
+            ss_tot = np.sum( ( np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])) - np.mean( np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])) ) ) ** 2 )
 
             r_squared = 1 - (ss_res / ss_tot)
 
