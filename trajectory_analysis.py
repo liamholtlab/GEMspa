@@ -552,7 +552,7 @@ class trajectory_analysis:
             labels.insert(0, l1)
         ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
 
-    def plot_cos_theta_by_group(self, label_order=[], plot_labels=[], max_tlag=-1, random_angles=True):
+    def plot_cos_theta_by_group(self, label_order=[], plot_labels=[], max_tlag=-1, random_angles=True, legend_fs=10):
         self.cos_theta_by_group = pd.read_csv(self.results_dir + "/cos_theta_by_group.txt", index_col=0, sep='\t',low_memory=False)
 
         if (label_order):
@@ -608,9 +608,11 @@ class trajectory_analysis:
             plt.plot(x_val, y_val, color='black', linestyle='--', linewidth=1.5, alpha=0.6, label='Random')
             plt.scatter(x_val, y_val, color='black', alpha=0.6, s=18)
 
-        ax.legend()
         ax.set_xlabel(r'$\tau$ $(s)$')
         ax.set_ylabel(r'$<cos \theta >$')
+
+        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+
         if(max_tlag > 0):
             ax.set_xlim(0, max_tlag)
         fig.tight_layout()
@@ -619,7 +621,7 @@ class trajectory_analysis:
         fig.clf()
         plt.close(fig)
 
-    def plot_msd_ensemble_by_group(self, label_order=[], plot_labels=[]):
+    def plot_msd_ensemble_by_group(self, label_order=[], plot_labels=[], legend_fs=10):
         self.results_by_group = pd.read_csv(self.results_dir + "/group_summary.txt", index_col=0, sep='\t',low_memory=False)
 
         if (label_order):
@@ -665,7 +667,7 @@ class trajectory_analysis:
         ax.set_xscale('log', base=10)
         ax.set_yscale('log', base=10)
 
-        ax.legend()
+        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
         fig.tight_layout()
         fig.savefig(self.results_dir + '/MSD_ensemble_by_group.pdf')
         ax.set_xscale('linear')
@@ -789,7 +791,9 @@ class trajectory_analysis:
         fig.clf()
         plt.close(fig)
 
-    def plot_distribution_Deff(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 , min_pts=20, make_legend=False, plot_inside_group=False, logscale=False):
+    def plot_distribution_Deff(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 ,
+                               min_pts=20, make_legend=False, plot_inside_group=False, logscale=False,
+                               legend_fs=10):
         self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
@@ -837,7 +841,8 @@ class trajectory_analysis:
                     plotting_kdepdf = gkde.evaluate(plotting_ind)
                     ax3.plot(plotting_ind, plotting_kdepdf, label=group)
                 else:
-                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability", label=group)
+                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability",
+                                 label=group, ax=ax3)
 
                 #filter by file name
                 if(plot_inside_group):
@@ -872,7 +877,7 @@ class trajectory_analysis:
                         ax.set_ylabel("Fraction")
 
                     if(make_legend):
-                        ax.legend()
+                        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
 
                     fig.tight_layout()
                     fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
@@ -889,7 +894,7 @@ class trajectory_analysis:
             ax3.set_ylabel("Density")
         else:
             ax3.set_ylabel("Fraction")
-        ax3.legend()
+        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
 
         fig3.tight_layout()
         if(logscale):
@@ -900,7 +905,9 @@ class trajectory_analysis:
         fig3.clf()
         plt.close(fig3)
 
-    def plot_distribution_alpha(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 , min_pts=20, make_legend=False, plot_inside_group=False):
+    def plot_distribution_alpha(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 ,
+                                min_pts=20, make_legend=False, plot_inside_group=False,
+                                legend_fs=10):
         self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
@@ -942,7 +949,8 @@ class trajectory_analysis:
                     plotting_kdepdf = gkde.evaluate(plotting_ind)
                     ax3.plot(plotting_ind, plotting_kdepdf, label=group)
                 else:
-                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability", label=group)
+                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability",
+                                 ax=ax3, label=group)
 
                 #filter by file name
                 if(plot_inside_group):
@@ -969,7 +977,7 @@ class trajectory_analysis:
                     else:
                         ax.set_ylabel("Fraction")
                     if(make_legend):
-                        ax.legend()
+                        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
 
                     fig.tight_layout()
                     fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
@@ -981,14 +989,15 @@ class trajectory_analysis:
             ax3.set_ylabel("Density")
         else:
             ax3.set_ylabel("Fraction")
-        ax3.legend()
+        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
 
         fig3.tight_layout()
         fig3.savefig(self.results_dir + '/combined_allgroups_alpha_' + plot_type + '.pdf')
         fig3.clf()
         plt.close(fig3)
 
-    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_type='gkde', bin_size=0.05, min_pts=20, make_legend=False, plot_inside_group=False):
+    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_type='gkde', bin_size=0.05, min_pts=20,
+                                     make_legend=False, plot_inside_group=False, legend_fs=10):
         self.data_list_with_step_sizes_full = pd.read_csv(self.results_dir + "/all_data_step_sizes.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_step_sizes_full = self.data_list_with_step_sizes_full.replace('', np.NaN)
@@ -1048,20 +1057,22 @@ class trajectory_analysis:
                         ax.set_xlabel("microns")
                         ax.set_ylabel("frequency")
                         if(make_legend):
-                            ax.legend()
+                            ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+                        fig.tight_layout()
                         fig.savefig(self.results_dir + '/all_tlag'+str(tlag)+'_'+str(group)+'_steps_'+plot_type+'.pdf')
                         fig.clf()
                         plt.close(fig)
 
         ax3.set_xlabel("microns")
         ax3.set_ylabel("frequency")
-        ax3.legend()
-
+        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+        fig3.tight_layout()
         fig3.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_allgroups_steps_' + plot_type + '.pdf')
         fig3.clf()
         plt.close(fig3)
 
-    def plot_distribution_angles(self, tlags=[1, 2, 3], plot_type='gkde', bin_size=18, min_pts=20, make_legend=False, plot_inside_group=False):
+    def plot_distribution_angles(self, tlags=[1, 2, 3], plot_type='gkde', bin_size=18, min_pts=20,
+                                 make_legend=False, plot_inside_group=False, legend_fs=10):
         self.data_list_with_angles = pd.read_csv(self.results_dir + "/all_data_angles.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_angles = self.data_list_with_angles.replace('', np.NaN)
@@ -1120,15 +1131,17 @@ class trajectory_analysis:
                         ax.set_xlabel("angles (degrees)")
                         ax.set_ylabel("frequency")
                         if(make_legend):
-                            ax.legend()
+                            ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+
+                        fig.tight_layout()
                         fig.savefig(self.results_dir + '/all_tlag' + str(tlag) + '_' + str(group) + '_angles_' + plot_type + '.pdf')
                         fig.clf()
                         plt.close(fig)
 
         ax3.set_xlabel("angle (degrees)")
         ax3.set_ylabel("frequency")
-        ax3.legend()
-
+        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+        fig3.tight_layout()
         fig3.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_allgroups_angles_' + plot_type + '.pdf')
         fig3.clf()
         plt.close(fig3)
@@ -1541,7 +1554,6 @@ class trajectory_analysis:
         plt.tight_layout()
         fig.savefig(self.results_dir + f"/D_vs_intensity.pdf")
         fig.clf()
-        print("")
 
         # for file_ in self.data_list_with_results_full['file name'].unique():
         #     cur_data = self.data_list_with_results_full.loc[self.data_list_with_results_full['file name']==file_]
