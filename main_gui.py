@@ -6,6 +6,10 @@ import os
 import trajectory_analysis as tja
 import re
 
+import rerun_rainbow_tracks as rerun_rt
+import test_time_interval as tti
+
+
 class ConditionsDialog(wx.Dialog):
     def __init__(self):
         super().__init__(parent=None, title='Experiment Conditions', size=(600, 600))
@@ -597,12 +601,24 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.plot_distribution_alpha(plot_type='', bin_size=0.1)
 
                     if(limit_with_rois):
-                        traj_an.make_plot_roi_area()
+                        pass
+                        #traj_an.make_plot_roi_area()
                     if(measure_gem_intensities):
-                        traj_an.make_plot_intensity()
+                        pass
+                        #traj_an.make_plot_intensity()
 
                     self.statusbar.SetStatusText('Finished!')
                     print("Finished!")
+
+    def on_test_time_interval(self, e):
+        frame = tti.CheckMoviesMainFrame()
+        frame.Show()
+
+
+    def on_rerun_rainbow_tracks(self, e):
+        frame = rerun_rt.RerunRTMainFrame()
+        frame.Show()
+
 
     def create_menu(self):
         menu_bar = wx.MenuBar()
@@ -632,8 +648,12 @@ class GEMSAnalyzerMainFrame(wx.Frame):
         self.Bind(event=wx.EVT_MENU, handler=self.on_exit, source=file_exit)
 
         run_go=run_menu.Append(wx.ID_ANY, "&GO", "Run the analysis")
+        run_tti = run_menu.Append(wx.ID_ANY, "&Check time intervals", "Check movie time intervals")
+        run_rerun_rt = run_menu.Append(wx.ID_ANY, "&Rerun Rainbow tracks", "Rerun rainbow tracks")
 
         self.Bind(event=wx.EVT_MENU, handler=self.on_go, source=run_go)
+        self.Bind(event=wx.EVT_MENU, handler=self.on_test_time_interval, source=run_tti)
+        self.Bind(event=wx.EVT_MENU, handler=self.on_rerun_rainbow_tracks, source=run_rerun_rt)
 
         menu_bar.Append(file_menu, '&File')
         menu_bar.Append(edit_menu, '&Edit')

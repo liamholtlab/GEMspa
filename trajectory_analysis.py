@@ -86,6 +86,8 @@ def make_mask_from_roi(rois, roi_name, img_shape):
                 final_img[rr, cc] = 1
             elif (roi['type'] == 'rectangle'):
                 rr, cc = draw.rectangle((roi['top'], roi['left']), extent=(roi['height'], roi['width']), shape=img_shape)
+                rr=rr.astype('int')
+                cc = cc.astype('int')
                 final_img[rr, cc] = 1
             elif (roi['type'] == 'oval'):
                 rr, cc = draw.ellipse(roi['top'] + roi['height'] / 2, roi['left'] + roi['width'] / 2, roi['height'] / 2, roi['width'] / 2, shape=img_shape)
@@ -122,15 +124,20 @@ def read_movie_metadata_tif(file_name):
 
 def read_movie_metadata_nd2(file_name):
     with ND2Reader(file_name) as images:
+        if (len(images.metadata['experiment']['loops']) > 0):
+            step=images.metadata['experiment']['loops'][0]['sampling_interval']
+
+            step = np.round(step, 0)
+            step = step / 1000
+
+            #plt.plot(range(1,len(steps)+1), steps)
+            #plt.clf()
+        else:
+            #print(f"Error reading exposure from nd2 movie! {file_name}")
+            #print(images.metadata['experiment']['loops'])
+            step=0
+
         steps = images.timesteps[1:] - images.timesteps[:-1]
-        step=images.metadata['experiment']['loops'][0]['sampling_interval']
-
-        step = np.round(step, 0)
-        step = step / 1000
-
-        #plt.plot(range(1,len(steps)+1), steps)
-        #plt.clf()
-
         # round steps to the nearest ms
         steps = np.round(steps, 0)
 
@@ -239,18 +246,18 @@ class trajectory_analysis:
 
         # this is the min. track length for individual tracks
         # any tracks >= this length will be fitted to the equations:
-        # MSD(τ) = 4Dτ to get eff-D
-        # MSD(τ) = 4Dτ^α (α is the anomolous exponent, τ is the time-lag)
+        # MSD(T) = 4DT to get eff-D
+        # MSD(T) = 4DT^a (a is the anomolous exponent, T is the time-lag)
         # (*ignore the _linfit suffix here*)
         self.min_track_len_linfit = 11
 
-        # this is the number of τ (time-lag) to use to fit
+        # this is the number of T (time-lag) to use to fit
         self.tlag_cutoff_linfit = 10
 
         # when calculating ensemble average, include tracks >= this length
         self.min_track_len_ensemble = 11
 
-        # this is the number of τ (time-lag) to use to fit, when fitting the ensemble average MSD
+        # this is the number of T (time-lag) to use to fit, when fitting the ensemble average MSD
         self.tlag_cutoff_ensemble = 10
 
         self.min_track_len_step_size = 3
@@ -404,45 +411,52 @@ class trajectory_analysis:
                     csv_file = row[1][self._file_col_name]
 
                     movie_dir = row[1][self._movie_file_col_name]
-                    movie_file = movie_dir + "/" + csv_file[5:-4]  # Drop "Traj_" at beginning and ".csv" at end
-
-                    # check first for .tif, then nd2
-                    if (not movie_file.endswith(".tif")):
-                        movie_file = movie_file + ".tif"
-                    if (os.path.isfile(movie_file)):
-                        self.valid_movie_files[ind]=movie_file
-                        if (self.get_calibration_from_metadata or self.uneven_time_steps):
-                            ret_val = read_movie_metadata_tif(movie_file)
-                            # some checks for reading from tiff files - since I'm not sure if the code will always work....!
-                            if (ret_val[0] == ''):
-                                ret_val[0] = self.micron_per_px
-                                self.log.write(f"Error! Micron per pixel could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
-                            if (ret_val[1] == ''):
-                                ret_val[1] = self.time_step
-                                self.log.write(f"Error! Time step could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
-                            if (len(ret_val[2]) == 0 and self.uneven_time_steps):
-                                self.log.write(f"Error! Full time step list could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                    if(type(movie_dir) != type("")):
+                        self.valid_movie_files[ind] = ''
+                        self.log.write(f"Error! Movie directory not set in the input file.\n")
                     else:
-                        self.valid_movie_files[ind] = '' # no reading from nd2 for now.... TODO
-                        if(self.measure_track_intensities):
-                            self.log.write(f"Error! TIF Movie file not found: {movie_file} for measuring track intensities.\n")
-                        if (self.get_calibration_from_metadata or self.uneven_time_steps):
-                            movie_file = movie_dir + "/" + csv_file[5:-4] + ".nd2"
-                            if (os.path.isfile(movie_file)):
-                                ret_val = read_movie_metadata_nd2(movie_file)
-                            else:
-                                ret_val = None
-                                self.calibration_from_metadata[ind] = ''
-                                self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
-                    if (self.get_calibration_from_metadata or self.uneven_time_steps):
-                        if (ret_val):
-                            if (not self.uneven_time_steps):
-                                ret_val[2] = []  # do not use full time step info / could be messed up anyway in case of tif file
+                        movie_file = movie_dir + "/" + csv_file[5:-4]  # Drop "Traj_" at beginning and ".csv" at end
 
-                            self.calibration_from_metadata[ind] = ret_val
-                            self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
-                            if (len(ret_val[2]) > 0 and self.uneven_time_steps):
-                                self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
+                        # check first for .tif, then nd2
+                        if (not movie_file.endswith(".tif")):
+                            movie_file = movie_file + ".tif"
+                        if (os.path.isfile(movie_file)):
+                            self.valid_movie_files[ind]=movie_file
+                            if (self.get_calibration_from_metadata or self.uneven_time_steps):
+                                ret_val = read_movie_metadata_tif(movie_file)
+                                # some checks for reading from tiff files - since I'm not sure if the code will always work....!
+                                if (ret_val[0] == ''):
+                                    ret_val[0] = self.micron_per_px
+                                    self.log.write(f"Error! Micron per pixel could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                                if (ret_val[1] == ''):
+                                    ret_val[1] = self.time_step
+                                    self.log.write(f"Error! Time step could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                                if (len(ret_val[2]) == 0 and self.uneven_time_steps):
+                                    self.log.write(f"Error! Full time step list could not be read from tif movie file: {movie_file}.  Falling back to default settings.\n")
+                        else:
+                            self.valid_movie_files[ind] = '' # no reading from nd2 for now.... TODO
+                            if(self.measure_track_intensities):
+                                self.log.write(f"Error! TIF Movie file not found: {movie_file} for measuring track intensities.\n")
+                            if (self.get_calibration_from_metadata or self.uneven_time_steps):
+                                movie_file = movie_dir + "/" + csv_file[5:-4] + ".nd2"
+                                if (os.path.isfile(movie_file)):
+                                    ret_val = read_movie_metadata_nd2(movie_file)
+                                else:
+                                    ret_val = None
+                                    self.calibration_from_metadata[ind] = ''
+                                    self.log.write(f"Error! Movie file not found: {movie_file}.  Falling back to default settings.\n")
+                        if (self.get_calibration_from_metadata or self.uneven_time_steps):
+                            if (ret_val):
+                                if (not self.uneven_time_steps):
+                                    ret_val[2] = []  # do not use full time step info / could be messed up anyway in case of tif file
+
+                                self.calibration_from_metadata[ind] = ret_val
+                                self.log.write(f"Movie file {movie_file}: microns-per-pixel={ret_val[0]}, exposure={ret_val[1]}\n")
+
+                                if (ret_val[1] == 0):
+                                    self.log.write(f"Movie file {movie_file}: exposure (time step) not read from file.  Falling back to default settings.\n")
+                                if (len(ret_val[2]) > 0 and self.uneven_time_steps):
+                                    self.log.write(f"Full time step list: min={np.min(ret_val[2])}, {ret_val[2]}\n")
 
             # group by the label columns
             # set_index will throw ValueError if index col has repeats
@@ -538,7 +552,7 @@ class trajectory_analysis:
             labels.insert(0, l1)
         ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
 
-    def plot_cos_theta_by_group(self, label_order=[], plot_labels=[], max_tlag=-1, random_angles=True):
+    def plot_cos_theta_by_group(self, label_order=[], plot_labels=[], max_tlag=-1, random_angles=True, legend_fs=10):
         self.cos_theta_by_group = pd.read_csv(self.results_dir + "/cos_theta_by_group.txt", index_col=0, sep='\t',low_memory=False)
 
         if (label_order):
@@ -594,9 +608,11 @@ class trajectory_analysis:
             plt.plot(x_val, y_val, color='black', linestyle='--', linewidth=1.5, alpha=0.6, label='Random')
             plt.scatter(x_val, y_val, color='black', alpha=0.6, s=18)
 
-        ax.legend()
-        ax.set_xlabel('$τ$ $(s)$')
-        ax.set_ylabel('$<cos(θ)>$')
+        ax.set_xlabel(r'$\tau$ $(s)$')
+        ax.set_ylabel(r'$<cos \theta >$')
+
+        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+
         if(max_tlag > 0):
             ax.set_xlim(0, max_tlag)
         fig.tight_layout()
@@ -605,7 +621,7 @@ class trajectory_analysis:
         fig.clf()
         plt.close(fig)
 
-    def plot_msd_ensemble_by_group(self, label_order=[], plot_labels=[]):
+    def plot_msd_ensemble_by_group(self, label_order=[], plot_labels=[], legend_fs=10):
         self.results_by_group = pd.read_csv(self.results_dir + "/group_summary.txt", index_col=0, sep='\t',low_memory=False)
 
         if (label_order):
@@ -643,15 +659,15 @@ class trajectory_analysis:
 
             # loglog plot and anomolous exp
             #ax.axhline(np.log(row[1]['ensemble_loglog_K']*4)) #np.exp(popt[1])/4
-            ax.scatter(x_vals, y_vals, label="{}, α≈{}".format(group, round(alpha, 2)))
+            ax.scatter(x_vals, y_vals, label="{}, a≈{}".format(group, round(alpha, 2)))
 
-        ax.set_xlabel('$τ$ $(s)$')
-        ax.set_ylabel('$MSD_{ens}$ ($μm^{2}$)')
+        ax.set_xlabel(r'$\tau$ $(s)$')
+        ax.set_ylabel(r'$MSD_{ens}$ ($\mu m^{2}$)')
 
         ax.set_xscale('log', base=10)
         ax.set_yscale('log', base=10)
 
-        ax.legend()
+        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
         fig.tight_layout()
         fig.savefig(self.results_dir + '/MSD_ensemble_by_group.pdf')
         ax.set_xscale('linear')
@@ -665,6 +681,8 @@ class trajectory_analysis:
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
         self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        d_label = round(self.time_step * 1000) * self.tlag_cutoff_linfit
 
         if (label_order):
             label_order_ = []
@@ -724,8 +742,8 @@ class trajectory_analysis:
 
                 cur_ax.set_title(group)
 
-                cur_ax.set_xlabel('$log(D_{100ms})$')
-                cur_ax.set_ylabel('α')
+                cur_ax.set_xlabel(f"$log(D_{{{d_label}ms}})$")
+                cur_ax.set_ylabel(r'$\alpha$')
 
                 (xlim_min, xlim_max) = cur_ax.get_xlim()
                 (ylim_min, ylim_max) = cur_ax.get_ylim()
@@ -773,11 +791,15 @@ class trajectory_analysis:
         fig.clf()
         plt.close(fig)
 
-    def plot_distribution_Deff(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 , min_pts=20, make_legend=False, plot_inside_group=False, logscale=False):
+    def plot_distribution_Deff(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 ,
+                               min_pts=20, make_legend=False, plot_inside_group=False, logscale=False,
+                               legend_fs=10):
         self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
         self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        d_label=round(self.time_step*1000)*self.tlag_cutoff_linfit
 
         if (label_order):
             label_order_ = []
@@ -819,7 +841,8 @@ class trajectory_analysis:
                     plotting_kdepdf = gkde.evaluate(plotting_ind)
                     ax3.plot(plotting_ind, plotting_kdepdf, label=group)
                 else:
-                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability", label=group)
+                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability",
+                                 label=group, ax=ax3)
 
                 #filter by file name
                 if(plot_inside_group):
@@ -844,9 +867,9 @@ class trajectory_analysis:
                                 sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False,
                                              stat="probability", label=str(cur_data[self._file_col_name].iloc[0])+roi_str, alpha=0.6)
                     if (logscale):
-                        ax.set_xlabel("$log(D_{eff}$ $(μm^{2}/s))$")
+                        ax.set_xlabel(f"$log(D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s))$")
                     else:
-                        ax.set_xlabel("$D_{eff}$ $(μm^{2}/s)$")
+                        ax.set_xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
                     if (plot_type == 'gkde'):
                         ax.set_ylabel("Density")
@@ -854,31 +877,37 @@ class trajectory_analysis:
                         ax.set_ylabel("Fraction")
 
                     if(make_legend):
-                        ax.legend()
+                        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+
+                    fig.tight_layout()
                     fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
                     fig.clf()
                     plt.close(fig)
 
         #ax3.set_xlim(ax3.get_xlim()[0], 2)
         if(logscale):
-            ax3.set_xlabel("$log(D_{eff}$ $(μm^{2}/s))$")
+            ax3.set_xlabel(f"$log(D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
         else:
-            ax3.set_xlabel("$D_{eff}$ $(μm^{2}/s)$")
+            ax3.set_xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
         if (plot_type == 'gkde'):
             ax3.set_ylabel("Density")
         else:
             ax3.set_ylabel("Fraction")
-        ax3.legend()
+        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
 
+        fig3.tight_layout()
         if(logscale):
             fig3.savefig(self.results_dir + '/combined_allgroups_logDeff_' + plot_type + '.pdf')
         else:
-         fig3.savefig(self.results_dir + '/combined_allgroups_Deff_' + plot_type + '.pdf')
+            fig3.savefig(self.results_dir + '/combined_allgroups_Deff_' + plot_type + '.pdf')
+
         fig3.clf()
         plt.close(fig3)
 
-    def plot_distribution_alpha(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 , min_pts=20, make_legend=False, plot_inside_group=False):
+    def plot_distribution_alpha(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 ,
+                                min_pts=20, make_legend=False, plot_inside_group=False,
+                                legend_fs=10):
         self.data_list_with_results_full = pd.read_csv(self.results_dir + "/all_data.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
@@ -920,7 +949,8 @@ class trajectory_analysis:
                     plotting_kdepdf = gkde.evaluate(plotting_ind)
                     ax3.plot(plotting_ind, plotting_kdepdf, label=group)
                 else:
-                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability", label=group)
+                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability",
+                                 ax=ax3, label=group)
 
                 #filter by file name
                 if(plot_inside_group):
@@ -941,29 +971,33 @@ class trajectory_analysis:
                                 sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False,
                                              stat="probability", label=str(cur_data[self._file_col_name].iloc[0])+roi_str, alpha=0.6)
 
-                    ax.set_xlabel("α")
+                    ax.set_xlabel(r"$\alpha$")
                     if (plot_type == 'gkde'):
                         ax.set_ylabel("Density")
                     else:
                         ax.set_ylabel("Fraction")
                     if(make_legend):
-                        ax.legend()
+                        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+
+                    fig.tight_layout()
                     fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
                     fig.clf()
                     plt.close(fig)
 
-        ax3.set_xlabel("α")
+        ax3.set_xlabel(r"$\alpha$")
         if (plot_type == 'gkde'):
             ax3.set_ylabel("Density")
         else:
             ax3.set_ylabel("Fraction")
-        ax3.legend()
+        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
 
+        fig3.tight_layout()
         fig3.savefig(self.results_dir + '/combined_allgroups_alpha_' + plot_type + '.pdf')
         fig3.clf()
         plt.close(fig3)
 
-    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_type='gkde', bin_size=0.05, min_pts=20, make_legend=False, plot_inside_group=False):
+    def plot_distribution_step_sizes(self, tlags=[1,2,3], plot_type='gkde', bin_size=0.05, min_pts=20,
+                                     make_legend=False, plot_inside_group=False, legend_fs=10):
         self.data_list_with_step_sizes_full = pd.read_csv(self.results_dir + "/all_data_step_sizes.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_step_sizes_full = self.data_list_with_step_sizes_full.replace('', np.NaN)
@@ -1023,20 +1057,22 @@ class trajectory_analysis:
                         ax.set_xlabel("microns")
                         ax.set_ylabel("frequency")
                         if(make_legend):
-                            ax.legend()
+                            ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+                        fig.tight_layout()
                         fig.savefig(self.results_dir + '/all_tlag'+str(tlag)+'_'+str(group)+'_steps_'+plot_type+'.pdf')
                         fig.clf()
                         plt.close(fig)
 
         ax3.set_xlabel("microns")
         ax3.set_ylabel("frequency")
-        ax3.legend()
-
+        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+        fig3.tight_layout()
         fig3.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_allgroups_steps_' + plot_type + '.pdf')
         fig3.clf()
         plt.close(fig3)
 
-    def plot_distribution_angles(self, tlags=[1, 2, 3], plot_type='gkde', bin_size=18, min_pts=20, make_legend=False, plot_inside_group=False):
+    def plot_distribution_angles(self, tlags=[1, 2, 3], plot_type='gkde', bin_size=18, min_pts=20,
+                                 make_legend=False, plot_inside_group=False, legend_fs=10):
         self.data_list_with_angles = pd.read_csv(self.results_dir + "/all_data_angles.txt", index_col=0, sep='\t', low_memory=False)
 
         self.data_list_with_angles = self.data_list_with_angles.replace('', np.NaN)
@@ -1095,15 +1131,17 @@ class trajectory_analysis:
                         ax.set_xlabel("angles (degrees)")
                         ax.set_ylabel("frequency")
                         if(make_legend):
-                            ax.legend()
+                            ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+
+                        fig.tight_layout()
                         fig.savefig(self.results_dir + '/all_tlag' + str(tlag) + '_' + str(group) + '_angles_' + plot_type + '.pdf')
                         fig.clf()
                         plt.close(fig)
 
         ax3.set_xlabel("angle (degrees)")
         ax3.set_ylabel("frequency")
-        ax3.legend()
-
+        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+        fig3.tight_layout()
         fig3.savefig(self.results_dir + '/combined_tlag' + str(tlag) + '_allgroups_angles_' + plot_type + '.pdf')
         fig3.clf()
         plt.close(fig3)
@@ -1369,6 +1407,8 @@ class trajectory_analysis:
 
         self.data_list_with_results_full = pd.read_csv(self.results_dir + '/'+"all_data.txt",index_col=0,sep='\t')
 
+        d_label = round(self.time_step * 1000) * self.tlag_cutoff_linfit
+
         if(len(self.data_list_with_results_full) == 0):
             print("Error: No data.")
             return ()
@@ -1404,7 +1444,7 @@ class trajectory_analysis:
         if (ylabel != ''):
             ax.set(ylabel=ylabel)
         else:
-            ax.set(ylabel="$D_{eff}$ $(μm^{2}/s)$")
+            ax.set(ylabel=f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
         plt.xticks(rotation='vertical')
         plt.tight_layout()
@@ -1422,6 +1462,8 @@ class trajectory_analysis:
 
         self.data_list_with_results['group']=self.data_list_with_results['group'].astype('str')
         self.data_list_with_results['group_readable'] = self.data_list_with_results['group_readable'].astype('str')
+
+        d_label=round(self.time_step*1000)*self.tlag_cutoff_linfit
 
 
         if(label_order):
@@ -1463,7 +1505,7 @@ class trajectory_analysis:
             if (ylabel != ''):
                 ax.set(ylabel = ylabel)
             else:
-                ax.set(ylabel = "$median$ $D_{eff}$ $(μm^{2}/s)$")
+                ax.set(ylabel = f"$median$ $D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
             plt.xticks(rotation='vertical')
             plt.tight_layout()
             fig.savefig(self.results_dir + '/summary_'+y_col+'.pdf')
@@ -1474,6 +1516,8 @@ class trajectory_analysis:
 
         self.data_list_with_results_full['group'] = self.data_list_with_results_full['group'].astype('str')
         self.data_list_with_results_full['group_readable'] = self.data_list_with_results_full['group_readable'].astype('str')
+
+        d_label = round(self.time_step * 1000) * self.tlag_cutoff_linfit
 
         if (label_order):
             label_order_ = []
@@ -1505,12 +1549,11 @@ class trajectory_analysis:
         l = ax.legend()
         l.set_title('')
         #ax.set_xlim(ax.get_xlim()[0],4)
-        plt.xlabel("$D_{eff}$ $(μm^{2}/s)$")
+        plt.xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
         plt.ylabel('Ave Px Intensity')
         plt.tight_layout()
         fig.savefig(self.results_dir + f"/D_vs_intensity.pdf")
         fig.clf()
-        print("")
 
         # for file_ in self.data_list_with_results_full['file name'].unique():
         #     cur_data = self.data_list_with_results_full.loc[self.data_list_with_results_full['file name']==file_]
@@ -1522,6 +1565,8 @@ class trajectory_analysis:
 
         self.data_list_with_results['group'] = self.data_list_with_results['group'].astype('str')
         self.data_list_with_results['group_readable'] = self.data_list_with_results['group_readable'].astype('str')
+
+        d_label = round(self.time_step * 1000) * self.tlag_cutoff_linfit
 
         if (label_order):
             label_order_ = []
@@ -1562,7 +1607,7 @@ class trajectory_analysis:
             if (ylabel != ''):
                 ax.set(ylabel=ylabel)
             else:
-                ax.set(ylabel="$median$ $D_{eff}$ $(μm^{2}/s)$")
+                ax.set(ylabel=f"$median$ $D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
             plt.tight_layout()
             fig.savefig(self.results_dir + f"/roi-area_vs_{y_col}.pdf")
@@ -1586,6 +1631,7 @@ class trajectory_analysis:
                 return pd.DataFrame()
 
         track_data_df = track_data_df[[self.traj_id_col, self.traj_frame_col, self.traj_x_col, self.traj_y_col]]
+        track_data_df = track_data_df.dropna()
         return track_data_df
 
     def filter_ROI(self, index, roi_name, df):
@@ -1786,7 +1832,8 @@ class trajectory_analysis:
                         if(len(step_sizes)>0):
                             msd_diff_obj.time_step=np.min(step_sizes)
                         else:
-                            msd_diff_obj.time_step=exposure
+                            if(exposure > 0):
+                                msd_diff_obj.time_step=exposure
 
                         # if we have varying step sizes, must filter tracks
                         if(self.uneven_time_steps):
@@ -1898,12 +1945,12 @@ class trajectory_analysis:
             self.data_list_with_NGP.to_csv(self.results_dir + '/' + "NGP.txt", sep='\t')
 
         if (self.uneven_time_steps or self.limit_to_ROIs):
-            self.data_list_with_step_sizes_full=self.data_list_with_step_sizes_full.replace('', np.NaN)
+            self.data_list_with_step_sizes_full.replace('', np.NaN, inplace=True)
             self.data_list_with_step_sizes_full.dropna(axis=1,how='all',inplace=True)
             self.data_list_with_step_sizes_full.dropna(axis=0,subset=['id',],inplace=True)
             self.data_list_with_step_sizes_full.dropna(axis=0, subset=['group',], inplace=True)
 
-            self.data_list_with_angles = self.data_list_with_angles.replace('', np.NaN)
+            self.data_list_with_angles.replace('', np.NaN, inplace=True)
             self.data_list_with_angles.dropna(axis=1, how='all', inplace=True)
             self.data_list_with_angles.dropna(axis=0, subset=['id', ], inplace=True)
             self.data_list_with_angles.dropna(axis=0, subset=['group',], inplace=True)
@@ -2092,7 +2139,7 @@ class trajectory_analysis:
 
                     print(cur_file, data[self._roi_col_name])
 
-                    if(self.measure_track_intensities and index in self.valid_movie_files):
+                    if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         cur_tif_movie = io.imread(self.valid_movie_files[index])
 
                     roi_area=''
@@ -2123,7 +2170,8 @@ class trajectory_analysis:
                             if (len(step_sizes) > 0):
                                 msd_diff_obj.time_step = np.min(step_sizes)
                             else:
-                                msd_diff_obj.time_step = exposure
+                                if (exposure > 0):
+                                    msd_diff_obj.time_step = exposure
 
                             #if we have varying step sizes, must filter tracks
                             if (self.uneven_time_steps):
@@ -2168,7 +2216,7 @@ class trajectory_analysis:
                         msd_diff_obj.radius_of_gyration()
                     msd_diff_obj.average_velocity()
 
-                    if(self.measure_track_intensities and index in self.valid_movie_files):
+                    if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         # remove tracks by length
                         msd_diff_obj.fill_track_intensities(cur_tif_movie, self.intensity_radius)
 
@@ -2248,7 +2296,7 @@ class trajectory_analysis:
                     self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_velocity'] = (
                         msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0], msd_diff_obj.D_linfits[:,0])][:,1])
 
-                    if(self.measure_track_intensities and index in self.valid_movie_files):
+                    if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_mean'] = (
                             msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0], msd_diff_obj.D_linfits[:, 0])][:, 1])
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_std'] = (
