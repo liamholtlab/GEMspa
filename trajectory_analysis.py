@@ -24,7 +24,8 @@ def get_roi_name_list_from_mask(mask):
     labeled,n=ndimage.label(mask)
     names = list(np.unique(labeled))
     names=sorted(names)
-    names.remove(0)
+    if(0 in names):
+        names.remove(0)
     return (names,labeled)
 
 def get_roi_name_list(rois):
