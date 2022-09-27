@@ -8,6 +8,7 @@ import wx.grid as gridlib
 import os
 import datetime
 import wx.lib.mixins.inspection
+from skimage import io
 
 def read_movie_metadata_tif(file_name):
     with TiffFile(file_name) as tif:
@@ -48,15 +49,16 @@ def read_movie_nd2(file_name):
             prev_image=image.copy()
         print("")
 
-def read_movie_metadata_nd2(file_name):
+def read_movie_metadata_nd2(file_name, return_image=False):
     with ND2Reader(file_name) as images:
+
         err_msg = ""
 
         if (len(images.metadata['experiment']['loops']) > 0):
             step=images.metadata['experiment']['loops'][0]['sampling_interval']
 
             #print(f"Time step: {step/1000}")
-            step = np.round(step, 0) #3)
+            step = np.round(step, 3)
             step = step / 1000
         else:
             err_msg="Could not read sampling_interval from movie metadata."
@@ -67,13 +69,24 @@ def read_movie_metadata_nd2(file_name):
         steps = images.timesteps[1:] - images.timesteps[:-1]
 
         # round steps to the nearest ms
-        steps = np.round(steps, 0) #3)
+        if (len(steps) > 0):
+            steps = np.round(steps, 3)
 
-        #convert steps from ms to s
-        steps=steps/1000
+            #convert steps from ms to s
+            steps=steps/1000
 
         microns_per_pixel=images.metadata['pixel_microns']
-        return [err_msg, microns_per_pixel, step, steps]
+
+        tiff_stack=[]
+        if(return_image and len(steps) > 0):
+            images.iter_axes = 'z'
+            tiff_stack = np.zeros(shape=[len(images), images[0].shape[0], images[0].shape[1]],
+                                  dtype=images[0].dtype)
+
+            for i, image in enumerate(images):
+                tiff_stack[i]=image
+
+        return [err_msg, microns_per_pixel, step, steps, tiff_stack]
 
 class CheckMoviesMainFrame(wx.Frame):
 
@@ -136,10 +149,14 @@ class CheckMoviesMainFrame(wx.Frame):
                                                   pos=(195, 65))
         wx.StaticText(self.left_panel_lower, label="ms", pos=(225, 65))
 
+        self.clipframes_chk = wx.CheckBox(self.left_panel_lower,
+                                         label="Clip frames and re-save nd2 files.",
+                                         pos=(10, 90))
+
 
         self.execute_button = wx.Button(self.left_panel_lower,
                                         label="Run!",
-                                        pos=(350, 65))
+                                        pos=(350, 90))
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.left_panel_upper, 0, ) #wx.SHAPED | wx.ALL, border=1)
@@ -196,7 +213,9 @@ class CheckMoviesMainFrame(wx.Frame):
         for cur_dir in dir_list:
             to_check = cur_dir[0]
             self.save_results(f"Checking files in: {to_check}:\n")
-            cur_results_str = self.check_dir(to_check)
+            cur_results_str = self.check_dir(to_check,
+                                             remove_frames=self.clipframes_chk.IsChecked(),
+                                             save_dir=save_path)
             self.save_results(f"{cur_results_str}\n")
 
             if(cur_dir[1]):
@@ -204,7 +223,9 @@ class CheckMoviesMainFrame(wx.Frame):
                     for name in dirs:
                         to_check=os.path.join(root, name)
                         self.save_results(f"Checking files in: {to_check}:\n")
-                        cur_results_str = self.check_dir(to_check)
+                        cur_results_str = self.check_dir(to_check,
+                                                         remove_frames=self.clipframes_chk.IsChecked(),
+                                                         save_dir=save_path)
                         self.save_results(f"{cur_results_str}\n")
 
     def save_results(self, output_str):
@@ -212,8 +233,10 @@ class CheckMoviesMainFrame(wx.Frame):
         self.output_text.flush()
         self.output_text.SaveFile(self.log_file)
 
-    def check_dir(self, dir_to_check, verbose=True):
+    def check_dir(self, dir_to_check, remove_frames=False, save_dir='', verbose=False):
         full_ret_str=""
+        ignored_count=0
+        processed_count=0
 
         extens = 'nd2'  # 'tif'
         movie_files = glob.glob(f"{dir_to_check}/*.{extens}")
@@ -222,27 +245,44 @@ class CheckMoviesMainFrame(wx.Frame):
             if(verbose):
                 print(movie_file)
             if (extens == 'nd2'):
-                ret_vals = read_movie_metadata_nd2(movie_file)
+                [err_msg, microns_per_pixel, step, steps, images] = read_movie_metadata_nd2(movie_file, remove_frames)
+
+                if (len(steps) == 0):
+                    # ignore this movie - there is one frame and it is (most likely) a snapshot
+                    ignored_count += 1
+                    continue
+
+                processed_count += 1
 
                 # error reading sampling interval from meta data
-                if(ret_vals[0]):
-                    ret_str += f"{ret_vals[0]}\n"
+                if(err_msg):
+                    ret_str += f"{err_msg}\n"
 
                 # difference in sampling interval?  (I think it is the average of the full time step list)
-                elif(abs(ret_vals[2] - self.expected_time_step) > self.time_resolution):
-                    ret_str += f"'sampling_interval' [{ret_vals[2]} ms] does not match expected time step.\n"
+                elif(abs(step - self.expected_time_step) > self.time_resolution):
+                    ret_str += f"'sampling_interval' [{step} ms] does not match expected time step.\n"
 
                 # full time step list: are any differences greater than the resolution?
-                time_step_diffs=np.abs(ret_vals[3]-self.expected_time_step)
-                if((time_step_diffs > self.time_resolution).any()):
-                    ret_str += f"Some image time steps do not match expected time step.  Values found (sec): {np.unique(ret_vals[3])}\n"
+                time_step_diffs=np.abs(steps-self.expected_time_step)
+                indices=np.where(time_step_diffs > self.time_resolution)[0]
+                if(len(indices)>0):
+                    ret_str += f"Some image time steps do not match expected time step.\n"
+                    ret_str += f"Frames: "
+                    for idx in indices:
+                        ret_str += f"{idx}={steps[idx]}, "
+                    ret_str = ret_str[:-2]
+                    ret_str += "\n"
+
+                    if(remove_frames):
+                        # remove any frames from the beginning of the movie
+                        max_frame = indices.max()
+                        movie_file_name,movie_file_ext=os.path.splitext(os.path.split(movie_file)[1])
+                        io.imsave(f"{save_dir}/{movie_file_name}-clip{max_frame}.tif", images[max_frame+1:])
 
                 if(verbose):
-                    print(f"Cal: {np.round(ret_vals[1], 3)}, Time-step: {ret_vals[2]} ms")
-                    print(f"All steps: {ret_vals[3]}")
-                    print(f"Mean: {np.round(np.mean(ret_vals[3]), 3)}")
-
-                # read_movie_nd2(movie_file)
+                    print(f"Cal: {np.round(microns_per_pixel, 3)}, Time-step: {step} ms")
+                    print(f"All steps: {steps}")
+                    print(f"Mean: {np.round(np.mean(steps), 3)}")
             else:
                 #ret_vals = read_movie_metadata_tif(movie_file)
                 #if(verbose):
@@ -251,10 +291,13 @@ class CheckMoviesMainFrame(wx.Frame):
                 pass
 
             if(ret_str):
+                full_ret_str += f"\n *Error*: {os.path.split(movie_file)[1]}\n{ret_str}\n"
 
-                full_ret_str += f"\n *Error*: {os.path.split(movie_file)[1]}\n{ret_str}"
+        full_ret_str += f"Finished: {processed_count} files processed and {ignored_count} files ignored."
 
         return full_ret_str
+
+    # /Volumes/holtl02lab/holtl02labspace/Holt_Lab_Members/Yi-Shuan/For_Sarah/20220921_uneven-time-interval
 
 #---------------------------------------------------------------------------
 
