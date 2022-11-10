@@ -13,7 +13,6 @@ import os
 max_D_cutoff=2
 min_D_cutoff=0
 
-
 def run_msd_diffusion(params):
     (file_name, time_step, micron_per_px) = params
     track_data_df = pd.read_csv(file_name)

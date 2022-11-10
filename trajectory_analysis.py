@@ -475,7 +475,7 @@ class trajectory_analysis:
         self.group_str_to_readable={}
 
     def write_params_to_log_file(self):
-        self.log.write("Run paramters:\n")
+        self.log.write("Run parameters:\n")
         self.log.write(f"Rainbow tracks: {self.make_rainbow_tracks}\n")
         self.log.write(f"Filter with ROI file: {self.limit_to_ROIs}\n")
         self.log.write(f"Read calibration from metadata: {self.get_calibration_from_metadata}\n")
