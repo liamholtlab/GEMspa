@@ -14,22 +14,24 @@ max_D_cutoff=2
 min_D_cutoff=0
 
 def run_msd_diffusion(params):
-    (file_name, time_step, micron_per_px) = params
+    (file_name, time_step, micron_per_px,
+     tlag_cutoff,min_len,min_len_s,max_tlag_s) = params
+
     track_data_df = pd.read_csv(file_name)
     track_data_df = track_data_df[['Trajectory', 'Frame', 'x', 'y']]
     track_data = track_data_df.to_numpy()
 
     msd_diff_obj = msd_diff.msd_diffusion()
 
-    msd_diff_obj.min_track_len_linfit = 11  # min. 11 track length gives at least 10 tlag values
-    msd_diff_obj.min_track_len_loglogfit = 11
-    msd_diff_obj.min_track_len_ensemble = 11
-    msd_diff_obj.tlag_cutoff_linfit = 10
-    msd_diff_obj.tlag_cutoff_loglogfit = 10
-    msd_diff_obj.tlag_cutoff_linfit_ensemble = 10
-    msd_diff_obj.tlag_cutoff_loglogfit_ensemble = 10
-    msd_diff_obj.min_track_len_step_size = 3
-    msd_diff_obj.max_tlag_step_size = 10
+    msd_diff_obj.min_track_len_linfit = min_len
+    msd_diff_obj.min_track_len_loglogfit = min_len
+    msd_diff_obj.min_track_len_ensemble = min_len
+    msd_diff_obj.tlag_cutoff_linfit = tlag_cutoff
+    msd_diff_obj.tlag_cutoff_loglogfit = tlag_cutoff
+    msd_diff_obj.tlag_cutoff_linfit_ensemble = tlag_cutoff
+    msd_diff_obj.tlag_cutoff_loglogfit_ensemble = tlag_cutoff
+    msd_diff_obj.min_track_len_step_size = min_len_s
+    msd_diff_obj.max_tlag_step_size = max_tlag_s
     msd_diff_obj.time_step = time_step
     msd_diff_obj.micron_per_px = micron_per_px
 
@@ -42,6 +44,8 @@ def run_msd_diffusion(params):
     msd_diff_obj.calculate_ensemble_average()
     msd_diff_obj.fit_msd_ensemble()
     msd_diff_obj.fit_msd_ensemble_alpha()
+    msd_diff_obj.average_velocity()
+    msd_diff_obj.step_sizes_and_angles()
 
     return msd_diff_obj
 
@@ -54,6 +58,10 @@ if __name__ == "__main__":
         group_end = int(sys.argv[4])
         time_step = float(sys.argv[5])
         micron_per_px = float(sys.argv[6])
+        tlag_cutoff = int(sys.argv[7])
+        min_len = int(sys.argv[8])
+        min_len_s = int(sys.argv[9])
+        max_tlag_s = int(sys.argv[10])
     else:
         print("Did not receive valid input parameters, attempting with default (test) values")
         input_path="/Users/snk218/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/Trajectories"
@@ -62,6 +70,10 @@ if __name__ == "__main__":
         group_end=6
         time_step = 0.010
         micron_per_px = 0.0917
+        tlag_cutoff = 10
+        min_len = 11
+        min_len_s = 3
+        max_tlag_s = 10
 
     files_list = glob.glob(f"{input_path}/*.csv")
     files_list.sort()
@@ -70,8 +82,13 @@ if __name__ == "__main__":
 
     params_arr = list(zip(files_to_process,
                           [time_step]*group_size,
-                          [micron_per_px]*group_size))
+                          [micron_per_px]*group_size,
+                          [tlag_cutoff]*group_size,
+                          [min_len]*group_size,
+                          [min_len_s]*group_size,
+                          [max_tlag_s]*group_size))
 
+    # Summary results
     colnames = ['directory',
                 'file name',
                 'D_median',
@@ -87,10 +104,45 @@ if __name__ == "__main__":
     data_list_with_results = pd.DataFrame(np.empty((len(files_to_process), len(colnames)), dtype=np.str),
                                           columns=colnames)
 
+    # Full results
+    colnames = ['directory',
+                'file name',
+                'Trajectory',
+                'avg_velocity',
+                'D',
+                'err',
+                'r_sq',
+                'rmse',
+                'track_len',
+                'D_max_tlag',
+                'K',
+                'aexp',
+                'aexp_r_sq',
+                'aexp_rmse']
 
+    D_allfits_full = pd.DataFrame()
     with Pool(group_size) as p:
         msd_diff_obj_list = p.map(run_msd_diffusion, params_arr)
         for index,msd_diff_obj in enumerate(msd_diff_obj_list):
+
+            # Fill all data array
+            D_linfits = pd.DataFrame(msd_diff_obj.D_linfits[:, :],
+                                     columns=['Trajectory', 'D', 'err', 'r_sq', 'rmse', 'track_len', 'D_max_tlag'])
+            D_linfits['avg_velocity'] = msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:, 0],
+                                                                          msd_diff_obj.D_linfits[:, 0])][:, 1]
+            D_linfits['directory']=input_path
+            D_linfits['file name']=os.path.split(files_to_process[index])[1]
+            D_linfits = D_linfits[['directory','file name','Trajectory', 'D', 'err', 'r_sq', 'rmse', 'track_len','avg_velocity']]
+
+            D_loglogfits = pd.DataFrame(msd_diff_obj.D_loglogfits[:, :],
+                                        columns=['Trajectory', 'K', 'aexp', 'K_err', 'aexp_err', 'aexp_r_sq',
+                                                 'aexp_rmse', 'track_len', 'D_max_tlag'])
+            D_loglogfits = D_loglogfits[['K', 'aexp', 'aexp_r_sq', 'aexp_rmse']]
+
+            D_allfits=pd.concat([D_linfits,D_loglogfits], axis=1) # works bc same track length cutoff for linear and log fits
+            D_allfits_full=pd.concat([D_allfits_full,D_allfits], axis=0, ignore_index=True)
+
+            # Fill summary data array
             D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
             D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
 
@@ -104,6 +156,16 @@ if __name__ == "__main__":
             else:
                 D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
                 D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
+
+            # Fill step sizes
+
+            # Fill angles
+
+            # Fill cosine theta
+
+            # Ensemble average fits
+
+            # Tau vs. MSD points
 
             # fill summary data array
             data_list_with_results.at[index, 'directory'] = input_path
@@ -122,5 +184,6 @@ if __name__ == "__main__":
             data_list_with_results.at[index, 'ensemble_loglog_r_sq'] = msd_diff_obj.anomolous_fit_rsq
 
         data_list_with_results.to_csv(f"{output_path}/summary-{group_start}-{group_end}.txt", sep='\t')
+        D_allfits_full.to_csv(f"{output_path}/all_data-{group_start}-{group_end}.txt", sep='\t')
 
 

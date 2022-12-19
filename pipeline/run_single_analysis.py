@@ -55,7 +55,7 @@ def process_file(input_file, output_path):
     msd_diff_obj.msd_all_tracks()
     msd_diff_obj.fit_msd()
     msd_diff_obj.fit_msd_alpha()
-    msd_diff_obj.calculate_ensemble_average()
+    num_tracks_ens = msd_diff_obj.calculate_ensemble_average()
     msd_diff_obj.fit_msd_ensemble()
     msd_diff_obj.fit_msd_ensemble_alpha()
 
@@ -117,10 +117,6 @@ def process_file(input_file, output_path):
     df.to_csv(f"{output_path}/{pre}_cos_theta.csv")
 
     # Ensemble average fit
-    num_tracks_ens = msd_diff_obj.calculate_ensemble_average()
-    msd_diff_obj.fit_msd_ensemble()
-    msd_diff_obj.fit_msd_ensemble_alpha()
-
     arr=[]
     arr.append([msd_diff_obj.ensemble_fit_D,
                 msd_diff_obj.ensemble_fit_rsq,

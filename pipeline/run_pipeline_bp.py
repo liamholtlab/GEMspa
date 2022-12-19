@@ -17,7 +17,11 @@ MEM_PER_NODE=320 #384 # in practice, this seems to be 320 (otherwise job fails)
 MAX_MEM_TO_REQUEST=20
 
 
-def process_path(input_path, output_path, stdout_path, group_size, job_time, time_step, micron_per_pixel, verbose):
+def process_path(input_path, output_path, stdout_path, group_size, job_time,
+                 time_step, micron_per_pixel,
+                 tlag_cutoff, min_len,
+                 min_len_s, max_tlag_s,
+                 verbose):
     files_list = glob.glob(f"{input_path}/*.csv")
 
     group_size=int(group_size)
@@ -52,9 +56,15 @@ def process_path(input_path, output_path, stdout_path, group_size, job_time, tim
     f.write("group_end=$4\n")
     f.write("time_step=$5\n")
     f.write("micron_per_px=$6\n")
+
+    f.write("tlag_cutoff=$7\n")
+    f.write("min_len=$8\n")
+    f.write("min_len_s=$9\n")
+    f.write("max_tlag_s=${10}\n")
+
     f.write("\n")
     f.write("/gpfs/data/holtlab/GEMS/anaconda/bin/python -m pipeline.run_msd_diffusion_group")
-    f.write(" $input_path $output_path $group_start $group_end $time_step $micron_per_px\n")
+    f.write(" $input_path $output_path $group_start $group_end $time_step $micron_per_px $tlag_cutoff $min_len $min_len_s $max_tlag_s\n")
     f.close()
 
     print("Running pipeline:")
@@ -63,6 +73,10 @@ def process_path(input_path, output_path, stdout_path, group_size, job_time, tim
     print(f"Stdout/err file path: {stdout_path}")
     print(f"Time step: {time_step}")
     print(f"Micron per px: {micron_per_pixel}")
+    print(f"Min length tracks: {min_len}")
+    print(f"tlag cutoff for fits: {tlag_cutoff}")
+    print(f"Min length tracks (step sizes/angles): {min_len_s}")
+    print(f"Max tlag for step sizes/angles: {max_tlag_s}")
     print(f"Number of files found in input path: {len(files_list)}")
     print(f"Group size: {group_size}")
     print(f"Mem per cpu: {mem_per_cpu}")
@@ -71,10 +85,10 @@ def process_path(input_path, output_path, stdout_path, group_size, job_time, tim
 
     for i in range(0, len(files_list), group_size):
         run_str=f"sbatch {fname} \"{input_path}\" \"{output_path}\" \"{i}\" \"{i+group_size}\" \"{time_step}\" \"{micron_per_pixel}\""
+        run_str += f" \"{tlag_cutoff}\" \"{min_len}\" \"{min_len_s}\" \"{max_tlag_s}\""
         if(verbose):
             print(run_str)
         os.system(run_str)
-
 
 if __name__ == "__main__":
 
@@ -92,8 +106,18 @@ if __name__ == "__main__":
                         type=str, default="0-12:00:00")
     parser.add_argument("-m", "--micron_per_px", help="pixel size in microns (0.0917)",
                         type=float, default=0.0917)
+
     parser.add_argument("-ts", "--time_step", help="time step in seconds (0.010)",
                         type=float, default=0.010)
+    parser.add_argument("-tlag", "--tlag_cutoff", help="tlag cutoff for fits (10)",
+                        type=int, default=10)
+    parser.add_argument("-len", "--min_len", help="min track length for fits (11)",
+                        type=int, default=11)
+    parser.add_argument("-len_s", "--min_len_s", help="min track length for step size/angles (3)",
+                        type=int, default=3)
+    parser.add_argument("-tlag_s", "--max_tlag_s", help="max tlag for step size/angles (10)",
+                        type=int, default=10)
+
     parser.add_argument("-v", "--verbose", help="print job submission commands to stdout",
                         action="store_true")
 
@@ -110,6 +134,11 @@ if __name__ == "__main__":
                  args.job_time,
                  args.time_step,
                  args.micron_per_px,
+                 args.time_step,
+                 args.tlag_cutoff,
+                 args.min_len,
+                 args.min_len_s,
+                 args.max_tlag_s,
                  args.verbose)
 
 
