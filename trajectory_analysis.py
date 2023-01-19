@@ -20,13 +20,22 @@ import matplotlib as mpl
 import matplotlib.pylab as pylab
 
 def get_roi_name_list_from_mask(mask):
-    mask=mask > 0
-    labeled,n=ndimage.label(mask)
+
+    num_objects = len(np.unique(mask)) - 1
+    if(num_objects > 1):
+        # we have a pre-labeled mask - read in the labels, these are each separate objects
+        labeled = mask
+    else:
+        # we only have a black and white image - let python do the labeling
+        mask = mask > 0
+        labeled, num_objects = ndimage.label(mask)
+
     names = list(np.unique(labeled))
-    names=sorted(names)
+    names = sorted(names)
     if(0 in names):
         names.remove(0)
-    return (names,labeled)
+
+    return (names, labeled)
 
 def get_roi_name_list(rois):
     name_list=[]
@@ -358,7 +367,7 @@ class trajectory_analysis:
                                 labeled_img = img_mask > 0
                                 labeled_img = labeled_img.astype('uint8')*255
                             else:
-                                roi_name_list,labeled_img = get_roi_name_list_from_mask(img_mask)
+                                roi_name_list, labeled_img = get_roi_name_list_from_mask(img_mask)
                             to_save=os.path.split(valid_roi_file)[1][:-4]+'_LABELS.tif'
                             io.imsave(self.results_dir + '/' + to_save, labeled_img)
                         else:
@@ -1646,12 +1655,23 @@ class trajectory_analysis:
                 rois = read_roi_zip(roi_file)
             elif (roi_file.endswith('_mask.tif')):
                 mask = io.imread(roi_file)
-                mask=mask>0
-                if(self.combine_rois):
-                    mask = mask.astype('uint8')*255 # the label will be 255, this was set prior
+
+                if (self.combine_rois):
+                    mask = mask > 0
+                    mask = mask.astype('uint8') * 255  # the label will be 255, this was set prior
+                    num_objects = 1
                 else:
-                    labeled, n = ndimage.label(mask)
-                    mask= (labeled == roi_name)
+                    num_objects = len(np.unique(mask)) - 1
+                    if (num_objects > 1):
+                        # we have a pre-labeled mask - read in the labels, these are each separate objects
+                        labeled = mask
+                    else:
+                        # we only have a black and white image - let python do the labeling
+                        mask = mask > 0
+                        labeled, num_objects = ndimage.label(mask)
+
+                    # make a mask with only the selected ROI set to "True"
+                    mask = (labeled == roi_name)
                     mask = mask.astype('uint8')
             else:
                 self.log.write(f"Invalid ROI file. ({roi_file})\n")
@@ -1671,8 +1691,9 @@ class trajectory_analysis:
                     self.log.write(f"Cannot load tif image file for ROI file: ({roi_file}).\n")
                     self.log.flush()
                     err = True
+
+            # limit the tracks to the ROI - returns track ids that are fully within mask
             if (not err):
-                # limit the tracks to the ROI - returns track ids that are fully within mask
                 valid_id_list,err = limit_tracks_given_mask(mask, df.to_numpy())
                 if(err):
                     self.log.write(f"Error!  Track positions are outside of TIF image bounds: {self.valid_img_files[index]}\n")
@@ -1683,7 +1704,7 @@ class trajectory_analysis:
         else:
             # no action here - error will already have been printed by class init function #
             pass
-        return (df,roi_area)
+        return (df, roi_area)
 
     def set_rows_to_none_ss(self, i, a, max, g, gr):
         for tlag_i in range(1, max, 1):
