@@ -134,13 +134,11 @@ if __name__ == "__main__":
                  args.job_time,
                  args.time_step,
                  args.micron_per_px,
-                 args.time_step,
                  args.tlag_cutoff,
                  args.min_len,
                  args.min_len_s,
                  args.max_tlag_s,
                  args.verbose)
-
 
 
 
