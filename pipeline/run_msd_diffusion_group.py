@@ -64,10 +64,10 @@ if __name__ == "__main__":
         max_tlag_s = int(sys.argv[10])
     else:
         print("Did not receive valid input parameters, attempting with default (test) values")
-        input_path="/Users/snk218/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/Trajectories"
-        output_path="/Users/snk218/Dropbox/mac_files/holtlab/data_and_results/GEMspa_Trial/Trajectories_output"
-        group_start=3
-        group_end=6
+        input_path="/Users/snk218/Dropbox (NYU Langone Health)/mac_files/holtlab/data_and_results/GEMspa_Trial/Trajectories"
+        output_path="/Users/snk218/Dropbox (NYU Langone Health)/mac_files/holtlab/data_and_results/GEMspa_Trial/Trajectories_output"
+        group_start=0
+        group_end=3
         time_step = 0.010
         micron_per_px = 0.0917
         tlag_cutoff = 10
@@ -121,6 +121,8 @@ if __name__ == "__main__":
                 'aexp_rmse']
 
     D_allfits_full = pd.DataFrame()
+    stepsizes_full = pd.DataFrame()
+    angles_full = pd.DataFrame()
     with Pool(group_size) as p:
         msd_diff_obj_list = p.map(run_msd_diffusion, params_arr)
         for index,msd_diff_obj in enumerate(msd_diff_obj_list):
@@ -132,7 +134,8 @@ if __name__ == "__main__":
                                                                           msd_diff_obj.D_linfits[:, 0])][:, 1]
             D_linfits['directory']=input_path
             D_linfits['file name']=os.path.split(files_to_process[index])[1]
-            D_linfits = D_linfits[['directory','file name','Trajectory', 'D', 'err', 'r_sq', 'rmse', 'track_len','avg_velocity']]
+            D_linfits['group'] = f"{group_start}-{group_end}"
+            D_linfits = D_linfits[['directory','file name','group','Trajectory', 'D', 'err', 'r_sq', 'rmse', 'track_len','avg_velocity']]
 
             D_loglogfits = pd.DataFrame(msd_diff_obj.D_loglogfits[:, :],
                                         columns=['Trajectory', 'K', 'aexp', 'K_err', 'aexp_err', 'aexp_r_sq',
@@ -158,14 +161,30 @@ if __name__ == "__main__":
                 D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
 
             # Fill step sizes
+            num_tlags=len(msd_diff_obj.step_sizes)
+            rest_cols=np.asarray(range(len(msd_diff_obj.step_sizes[0]))).astype('str')
+            stepsizes = pd.DataFrame(msd_diff_obj.step_sizes, columns=rest_cols)
+            stepsizes['tlag'] = list(range(1, num_tlags + 1))
+            stepsizes['directory'] = input_path
+            stepsizes['file name'] = os.path.split(files_to_process[index])[1]
+            stepsizes['group'] = f"{group_start}-{group_end}"
+            colnames=["directory", "file name", "group", "tlag"]
+            colnames.extend(rest_cols)
+            stepsizes=stepsizes[colnames]
+            stepsizes_full = pd.concat([stepsizes_full, stepsizes], axis=0, ignore_index=True)
 
             # Fill angles
-
-            # Fill cosine theta
-
-            # Ensemble average fits
-
-            # Tau vs. MSD points
+            num_tlags = len(msd_diff_obj.angles)
+            rest_cols = np.asarray(range(len(msd_diff_obj.angles[0]))).astype('str')
+            angles = pd.DataFrame(msd_diff_obj.angles, columns=rest_cols)
+            angles['tlag'] = list(range(1, num_tlags + 1))
+            angles['directory'] = input_path
+            angles['file name'] = os.path.split(files_to_process[index])[1]
+            angles['group'] = f"{group_start}-{group_end}"
+            colnames = ["directory", "file name", "group", "tlag"]
+            colnames.extend(rest_cols)
+            angles = angles[colnames]
+            angles_full = pd.concat([angles_full, angles], axis=0, ignore_index=True)
 
             # fill summary data array
             data_list_with_results.at[index, 'directory'] = input_path
@@ -185,5 +204,7 @@ if __name__ == "__main__":
 
         data_list_with_results.to_csv(f"{output_path}/summary-{group_start}-{group_end}.txt", sep='\t')
         D_allfits_full.to_csv(f"{output_path}/all_data-{group_start}-{group_end}.txt", sep='\t')
+        stepsizes_full.to_csv(f"{output_path}/step_sizes-{group_start}-{group_end}.txt", sep='\t')
+        angles_full.to_csv(f"{output_path}/angles-{group_start}-{group_end}.txt", sep='\t')
 
 

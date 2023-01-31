@@ -2,10 +2,22 @@ import glob
 import argparse
 import pandas as pd
 
-
 # Input is a path to the output files (txt files)
 # This script will combine all files into one
 
+def combine_files(input_path, file_pre, file_suffix=None):
+    # Combine files
+    all_files = glob.glob(f"{input_path}/{file_pre}-*.txt")
+    full_df = pd.DataFrame()
+    for file in all_files:
+        cur_df = pd.read_csv(file, sep='\t', index_col=0)
+        full_df = pd.concat([full_df, cur_df])
+
+    full_df.index = range(len(full_df))
+    if (file_suffix is None):
+        full_df.to_csv(f"{input_path}/{file_pre}-merged.txt", sep="\t")
+    else:
+        full_df.to_csv(f"{input_path}/{file_pre}-{file_suffix}", sep="\t")
 
 if __name__ == "__main__":
 
@@ -16,17 +28,12 @@ if __name__ == "__main__":
                         type=str)
 
     args = parser.parse_args()
-    all_files = glob.glob(f"{args.input_path}/summary-*.txt")
-    full_df=pd.DataFrame()
-    for file in all_files:
-        cur_df = pd.read_csv(file, sep='\t', index_col=0)
-        full_df = pd.concat([full_df, cur_df])
 
-    full_df.index=range(len(full_df))
-    if(args.file_name is None):
-        full_df.to_csv(f"{args.input_path}/merged.txt", sep="\t")
-    else:
-        full_df.to_csv(f"{args.input_path}/{args.file_name}", sep="\t")
+    combine_files(args.input_path, "summary", args.file_name)
+    combine_files(args.input_path, "all_data", args.file_name)
+    combine_files(args.input_path, "step_sizes", args.file_name)
+    combine_files(args.input_path, "angles", args.file_name)
+
 
 
 
