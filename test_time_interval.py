@@ -242,9 +242,8 @@ class CheckMoviesMainFrame(wx.Frame):
         movie_files = glob.glob(f"{dir_to_check}/*.{extens}")
         for movie_file in movie_files:
             ret_str=""
-            if(verbose):
-                print(movie_file)
             if (extens == 'nd2'):
+                print(f"Reading {movie_file}...")
                 [err_msg, microns_per_pixel, step, steps, images] = read_movie_metadata_nd2(movie_file, remove_frames)
 
                 if (len(steps) == 0):
