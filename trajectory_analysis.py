@@ -28,7 +28,8 @@ def get_roi_name_list_from_mask(mask):
     else:
         # we only have a black and white image - let python do the labeling
         mask = mask > 0
-        labeled, num_objects = ndimage.label(mask)
+        sq=[[1,1,1],[1,1,1],[1,1,1]]
+        labeled, num_objects = ndimage.label(mask, structure=sq)
 
     names = list(np.unique(labeled))
     names = sorted(names)
@@ -247,6 +248,8 @@ class trajectory_analysis:
         self.time_step = 0.010  # time between frames, in seconds
         self.micron_per_px = 0.11
         self.ts_resolution=0.005
+
+        self.fit_msd_with_error_term=False
 
         # track (trajectory) files columns - user can adjust as needed
         self.traj_id_col = 'Trajectory'
@@ -493,6 +496,7 @@ class trajectory_analysis:
         self.log.write(f"Min time step resolution: {self.ts_resolution}\n")
         self.log.write(f"Time between frames (s): {self.time_step}\n")
         self.log.write(f"Scale (microns per px): {self.micron_per_px}\n")
+        self.log.write(f"Fit (linear) MSD curve with error term: {self.fit_msd_with_error_term}\n")
 
         self.log.write(f"Min track length: {self.min_track_len_linfit}\n")
         self.log.write(f"Min track length (ensemble average): {self.min_track_len_ensemble}\n")
@@ -519,6 +523,7 @@ class trajectory_analysis:
     def make_msd_diff_object(self):
         msd_diff_obj = msd_diff.msd_diffusion()
         msd_diff_obj.save_dir = self.results_dir
+        msd_diff_obj.fit_msd_with_error_term = self.fit_msd_with_error_term
 
         msd_diff_obj.min_track_len_linfit = self.min_track_len_linfit
 
@@ -1668,7 +1673,8 @@ class trajectory_analysis:
                     else:
                         # we only have a black and white image - let python do the labeling
                         mask = mask > 0
-                        labeled, num_objects = ndimage.label(mask)
+                        sq = [[1, 1, 1], [1, 1, 1], [1, 1, 1]]
+                        labeled, num_objects = ndimage.label(mask, structure=sq)
 
                     # make a mask with only the selected ROI set to "True"
                     mask = (labeled == roi_name)
@@ -2029,7 +2035,7 @@ class trajectory_analysis:
         full_results1['group']=''
         full_results1['group_readable']=''
         full_results2_cols1=['D_median','D_mean','D_median_filt','D_mean_filt','avg_velocity','int_mean','int_std']
-        full_results2_cols2=['Trajectory','D','err','r_sq','rmse','track_len','D_max_tlag']
+        full_results2_cols2=['Trajectory','D','E','err','r_sq','rmse','track_len','D_max_tlag']
         full_results2_cols3=['K','aexp','aexp_r_sq','aexp_rmse']
 
         cols_len=len(full_results2_cols1) + len(full_results2_cols2) + len(full_results2_cols3)
@@ -2060,6 +2066,7 @@ class trajectory_analysis:
         self.data_list_with_results['num_tracks_D'] = 0
         self.data_list_with_results['area'] = ''
         self.data_list_with_results['ensemble_D'] = ''
+        self.data_list_with_results['ensemble_E'] = ''
         self.data_list_with_results['ensemble_r_sq'] = ''
         self.data_list_with_results['ensemble_loglog_K'] = ''
         self.data_list_with_results['ensemble_loglog_aexp'] = ''
@@ -2069,7 +2076,7 @@ class trajectory_analysis:
 
         # make a dataframe containing summary values by group
         colnames=['group', 'group_readable',
-                  'ensemble_D', 'ensemble_r_sq',
+                  'ensemble_D', 'ensemble_E', 'ensemble_r_sq',
                   'ensemble_loglog_K', 'ensemble_loglog_aexp', 'ensemble_loglog_r_sq',
                   'D_group_median', 'D_group_mean', 'D_group_std', 'D_group_sem',
                   'aexp_group_median', 'aexp_group_mean', 'aexp_group_std', 'aexp_group_sem',
@@ -2316,16 +2323,19 @@ class trajectory_analysis:
 
                     # output avg_velocity but only for the tracks were used in Deff calculation
                     self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_velocity'] = (
-                        msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0], msd_diff_obj.D_linfits[:,0])][:,1])
+                        msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0],
+                                                          msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col])][:,1])
 
                     if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_mean'] = (
-                            msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0], msd_diff_obj.D_linfits[:, 0])][:, 1])
+                            msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0],
+                                                                   msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col])][:, 1])
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_std'] = (
-                            msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0], msd_diff_obj.D_linfits[:, 0])][:, 2])
+                            msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0],
+                                                                   msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col])][:, 2])
 
                     next_col = len(full_results1.columns) + len(full_results2_cols1)
-                    self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data), next_col:next_col + len(cur_data[0])] = cur_data
+                    self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data), next_col:next_col+len(cur_data[0])] = cur_data
 
                     # add in the alpha information for each track
                     next_col = len(full_results1.columns) + len(full_results2_cols1) + len(full_results2_cols2)
@@ -2363,6 +2373,7 @@ class trajectory_analysis:
                     self.data_list_with_results.at[index, 'group'] = file_str
                     self.data_list_with_results.at[index, 'group_readable']=group_readable
                     self.data_list_with_results.at[index, 'ensemble_D']=msd_diff_obj.ensemble_fit_D
+                    self.data_list_with_results.at[index, 'ensemble_E'] = msd_diff_obj.ensemble_fit_E
                     self.data_list_with_results.at[index, 'ensemble_r_sq'] = msd_diff_obj.ensemble_fit_rsq
                     self.data_list_with_results.at[index, 'ensemble_loglog_K'] = msd_diff_obj.anomolous_fit_K
                     self.data_list_with_results.at[index, 'ensemble_loglog_aexp'] = msd_diff_obj.anomolous_fit_alpha
@@ -2417,6 +2428,7 @@ class trajectory_analysis:
             self.results_by_group.at[group_i,'group']=file_str
             self.results_by_group.at[group_i,'group_readable']=group_readable
             self.results_by_group.at[group_i,'ensemble_D'] = msd_diff_obj.ensemble_fit_D
+            self.results_by_group.at[group_i, 'ensemble_E'] = msd_diff_obj.ensemble_fit_E
             self.results_by_group.at[group_i,'ensemble_r_sq'] = msd_diff_obj.ensemble_fit_rsq
             self.results_by_group.at[group_i,'ensemble_loglog_K'] = msd_diff_obj.anomolous_fit_K
             self.results_by_group.at[group_i,'ensemble_loglog_aexp'] = msd_diff_obj.anomolous_fit_alpha
