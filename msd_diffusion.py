@@ -532,7 +532,7 @@ class msd_diffusion:
                                               self.ensemble_msd_col]))-np.mean(np.nan_to_num(np.log(self.ensemble_average[:stop,
                                                                                                     self.ensemble_msd_col]))))**2)
 
-        r_squared = 1 - (ss_res / ss_tot)
+        r_squared = min(0, 1 - (ss_res / ss_tot))
 
         self.anomolous_fit_rsq = r_squared
         self.anomolous_fit_rmse = rmse
@@ -584,7 +584,7 @@ class msd_diffusion:
         ss_tot = np.sum((self.ensemble_average[:stop,
                          self.ensemble_msd_col]-np.mean(self.ensemble_average[:stop,
                                                         self.ensemble_msd_col]))**2)
-        r_squared = 1 - (ss_res / ss_tot)
+        r_squared = min(0, 1 - (ss_res / ss_tot))
         perr = np.sqrt(np.diag(pcov))  # one standard deviation error on the parameters
 
         D = popt[0]
@@ -728,7 +728,7 @@ class msd_diffusion:
             ss_res = np.sum(residuals ** 2)
             rmse = np.mean(residuals ** 2) ** 0.5
             ss_tot = np.sum((cur_track[1:stop, self.msd_msd_col] - np.mean(cur_track[1:stop, self.msd_msd_col])) ** 2)
-            r_squared = 1 - (ss_res / ss_tot)
+            r_squared = min(0, 1 - (ss_res / ss_tot))
             perr = np.sqrt(np.diag(pcov))
 
             D = popt[0]
@@ -784,7 +784,7 @@ class msd_diffusion:
             rmse = np.mean(residuals**2)**0.5
             ss_tot = np.sum( ( np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])) - np.mean( np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])) ) ) ** 2 )
 
-            r_squared = 1 - (ss_res / ss_tot)
+            r_squared = min(0, 1 - (ss_res / ss_tot))
 
             self.D_loglogfits[i][self.D_loglog_id_col]=id
             self.D_loglogfits[i][self.D_loglog_K_col] = np.exp(popt[1]) / 4
@@ -835,7 +835,7 @@ class msd_diffusion:
     #         ss_res = np.sum(residuals ** 2)
     #         rmse = np.mean(residuals ** 2) ** 0.5
     #         ss_tot = np.sum((alpha_app - np.mean(alpha_app)) ** 2)
-    #         r_squared = 1 - (ss_res / ss_tot)
+    #         r_squared = min(0, 1 - (ss_res / ss_tot))
     #
     #         self.alpha_appfits[i][self.alpha_app_id_col] = id
     #         self.alpha_appfits[i][self.alpha_app_param_col] = popt[0]
@@ -875,7 +875,7 @@ class msd_diffusion:
     #     ss_res = np.sum(residuals ** 2)
     #     rmse = np.mean(residuals ** 2) ** 0.5
     #     ss_tot = np.sum((alpha_app - np.mean(alpha_app)) ** 2)
-    #     r_squared = 1 - (ss_res / ss_tot)
+    #     r_squared = min(0, 1 - (ss_res / ss_tot))
     #
     #     self.alpha_app_param = popt[0]
     #     self.alpha_app_errparam = np.sqrt(np.diag(pcov))[0]
