@@ -51,6 +51,8 @@ class msd_diffusion:
         self.initial_guess_linfit=0.2
         self.initial_guess_aexp=1
 
+        self.fit_msd_with_error_term=False
+
         self.tracks_num_cols=5
         self.tracks_id_col=0
         self.tracks_frame_col=1
@@ -68,14 +70,15 @@ class msd_diffusion:
         self.msd_std_col = 6
         self.msd_len_col = 7
 
-        self.D_lin_num_cols=7
+        self.D_lin_num_cols=8
         self.D_lin_id_col = 0
         self.D_lin_D_col = 1
-        self.D_lin_err_col = 2
-        self.D_lin_rsq_col = 3
-        self.D_lin_rmse_col = 4
-        self.D_lin_len_col = 5
-        self.D_lin_fitlen_col = 6
+        self.D_lin_E_col = 2
+        self.D_lin_err_col = 3
+        self.D_lin_rsq_col = 4
+        self.D_lin_rmse_col = 5
+        self.D_lin_len_col = 6
+        self.D_lin_fitlen_col = 7
 
         self.D_loglog_num_cols=9
         self.D_loglog_id_col=0
@@ -88,6 +91,21 @@ class msd_diffusion:
         self.D_loglog_len_col = 7
         self.D_loglog_fitlen_col = 8
 
+        # self.alpha_app_num_cols = 7
+        # self.alpha_app_id_col = 0
+        # self.alpha_app_param_col = 1
+        # self.alpha_app_errparam_col = 2
+        # self.alpha_app_rsq_col = 3
+        # self.alpha_app_rmse_col = 4
+        # self.alpha_app_len_col = 5
+        # self.alpha_app_fitlen_col = 6
+
+        self.ensemble_t_col=0
+        self.ensemble_msd_col=1
+        self.ensemble_std_col=2
+        self.ensemble_n_col=3
+
+
     def set_track_data(self, track_data):
         self.tracks=track_data
         self.track_lengths = np.asarray([])
@@ -95,6 +113,7 @@ class msd_diffusion:
         self.msd_tracks = np.asarray([])
         self.D_linfits = np.asarray([])
         self.D_loglogfits = np.asarray([])
+        self.alpha_appfits = np.asarray([])
         self.r_of_g = np.asarray([])
         self.avg_velocity = np.asarray([])
         self.r_of_g_full = np.asarray([])
@@ -472,7 +491,7 @@ class msd_diffusion:
                     tlag_time=tlag*self.time_step
                     cur_tlag_MSDs=valid_tracks[valid_tracks[:, self.msd_t_col] == tlag_time][:,self.msd_msd_col]
 
-                    ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs), np.std(cur_tlag_MSDs)])
+                    ensemble_average.append([tlag_time, np.mean(cur_tlag_MSDs), np.std(cur_tlag_MSDs), len(cur_tlag_MSDs)])
                 len_uniq=len(np.unique(valid_tracks[:, self.msd_id_col]))
 
         self.ensemble_average=np.asarray(ensemble_average)
@@ -497,18 +516,23 @@ class msd_diffusion:
 
         def linear_fn(x, m, b):
             return m * x + b
-
         linear_fn_v = np.vectorize(linear_fn)
 
-        popt, pcov = curve_fit(linear_fn, np.log(self.ensemble_average[:stop, 0]), np.nan_to_num(np.log(self.ensemble_average[:stop, 1])),
+        popt, pcov = curve_fit(linear_fn, np.log(self.ensemble_average[:stop, self.ensemble_t_col]),
+                               np.nan_to_num(np.log(self.ensemble_average[:stop, self.ensemble_msd_col])),
                                p0=[self.initial_guess_aexp, np.log(4*self.initial_guess_linfit)])
 
-        residuals = np.nan_to_num(np.log(self.ensemble_average[:stop, 1])) - linear_fn_v(np.log(self.ensemble_average[:stop, 0]), popt[0], popt[1])
+        residuals = np.nan_to_num(np.log(self.ensemble_average[:stop,
+                                         self.ensemble_msd_col])) - linear_fn_v(np.log(self.ensemble_average[:stop,
+                                                                                       self.ensemble_t_col]),
+                                                                                popt[0], popt[1])
         ss_res = np.sum(residuals ** 2)
         rmse = np.mean(residuals ** 2) ** 0.5
-        ss_tot = np.sum( ( np.nan_to_num(np.log(self.ensemble_average[:stop, 1])) - np.mean( np.nan_to_num(np.log(self.ensemble_average[:stop, 1])) ) ) ** 2 )
+        ss_tot = np.sum((np.nan_to_num(np.log(self.ensemble_average[:stop,
+                                              self.ensemble_msd_col]))-np.mean(np.nan_to_num(np.log(self.ensemble_average[:stop,
+                                                                                                    self.ensemble_msd_col]))))**2)
 
-        r_squared = 1 - (ss_res / ss_tot)
+        r_squared = max(0, 1 - (ss_res / ss_tot))
 
         self.anomolous_fit_rsq = r_squared
         self.anomolous_fit_rmse = rmse
@@ -529,24 +553,51 @@ class msd_diffusion:
 
         stop = self.tlag_cutoff_linfit_ensemble
 
-        def linear_fn(x, a):
-            return 4 * a * x
+        if (self.fit_msd_with_error_term):
+            def linear_fn(x, a, c):
+                return 4 * a * x + c
 
-        linear_fn_v = np.vectorize(linear_fn)
+            linear_fn_v = np.vectorize(linear_fn)
+            popt, pcov = curve_fit(linear_fn,
+                                   self.ensemble_average[:stop,self.ensemble_t_col],
+                                   self.ensemble_average[:stop,self.ensemble_msd_col],
+                                   p0=[self.initial_guess_linfit, self.ensemble_t_col])
+            residuals = self.ensemble_average[:stop,
+                        self.ensemble_msd_col]-linear_fn_v(self.ensemble_average[:stop,
+                                                           self.ensemble_t_col],popt[0], popt[1])
 
-        popt, pcov = curve_fit(linear_fn, self.ensemble_average[:stop,0], self.ensemble_average[:stop,1],
-                               p0=[self.initial_guess_linfit,])
-        residuals = self.ensemble_average[:stop,1] - linear_fn_v(self.ensemble_average[:stop,0], popt[0])
+        else:
+            def linear_fn(x, a):
+                return 4 * a * x
+
+            linear_fn_v = np.vectorize(linear_fn)
+            popt, pcov = curve_fit(linear_fn,
+                                   self.ensemble_average[:stop, self.ensemble_t_col],
+                                   self.ensemble_average[:stop, self.ensemble_msd_col],
+                                   p0=[self.initial_guess_linfit])
+            residuals = self.ensemble_average[:stop,
+                        self.ensemble_msd_col]-linear_fn_v(self.ensemble_average[:stop,
+                                                           self.ensemble_t_col], popt[0])
+
         ss_res = np.sum(residuals ** 2)
         rmse = np.mean(residuals ** 2) ** 0.5
-        ss_tot = np.sum((self.ensemble_average[:stop,1] - np.mean(self.ensemble_average[:stop,1]))**2)
+        ss_tot = np.sum((self.ensemble_average[:stop,
+                         self.ensemble_msd_col]-np.mean(self.ensemble_average[:stop,
+                                                        self.ensemble_msd_col]))**2)
+        r_squared = max(0, 1 - (ss_res / ss_tot))
+        perr = np.sqrt(np.diag(pcov))  # one standard deviation error on the parameters
 
-        r_squared = 1 - (ss_res / ss_tot)
+        D = popt[0]
+        if (self.fit_msd_with_error_term):
+            E = popt[1]
+        else:
+            E = 0
 
         self.ensemble_fit_rsq = r_squared
         self.ensemble_fit_rmse = rmse
-        self.ensemble_fit_D=popt[0]
-        self.ensemble_fit_err=np.sqrt(np.diag(pcov)) #one standard deviation error on the parameter
+        self.ensemble_fit_D=D
+        self.ensemble_fit_E=E
+        self.ensemble_fit_err=perr[0]
 
     def plot_msd_ensemble(self, file_name="msd_ensemble.pdf", ymax=-1, xmax=-1, fit_line=False):
 
@@ -656,36 +707,40 @@ class msd_diffusion:
             else:
                 stop = self.tlag_cutoff_linfit+1
 
-            def linear_fn(x, a):
-                return 4 * a * x
-            linear_fn_v = np.vectorize(linear_fn)
+            if(self.fit_msd_with_error_term):
+                def linear_fn(x, a, c):
+                    return 4 * a * x + c
+                linear_fn_v = np.vectorize(linear_fn)
+                popt, pcov = curve_fit(linear_fn, cur_track[1:stop,self.msd_t_col], cur_track[1:stop,self.msd_msd_col],
+                                       p0=[self.initial_guess_linfit, 0])
+                residuals = cur_track[1:stop, self.msd_msd_col] - linear_fn_v(cur_track[1:stop, self.msd_t_col],
+                                                                              popt[0],
+                                                                              popt[1])
+            else:
+                def linear_fn(x, a):
+                    return 4 * a * x
+                linear_fn_v = np.vectorize(linear_fn)
+                popt, pcov = curve_fit(linear_fn, cur_track[1:stop,self.msd_t_col], cur_track[1:stop,self.msd_msd_col],
+                                       p0=[self.initial_guess_linfit])
+                residuals = cur_track[1:stop,self.msd_msd_col] - linear_fn_v(cur_track[1:stop,self.msd_t_col],
+                                                                             popt[0])
 
-            ##### Correct way
-            popt, pcov = curve_fit(linear_fn, cur_track[1:stop,self.msd_t_col], cur_track[1:stop,self.msd_msd_col],
-                                   p0=[self.initial_guess_linfit,])
-            residuals = cur_track[1:stop,self.msd_msd_col] - linear_fn_v(cur_track[1:stop,self.msd_t_col], popt[0])
             ss_res = np.sum(residuals ** 2)
-            rmse = np.mean(residuals**2)**0.5
-            ss_tot = np.sum((cur_track[1:stop,self.msd_msd_col] - np.mean(cur_track[1:stop,self.msd_msd_col])) ** 2)
-            #####
-
-            ##### Matches matlab script results
-            # popt, pcov = curve_fit(linear_fn, cur_track[0:stop-1, self.msd_t_col],cur_track[1:stop, self.msd_msd_col],
-            #                        p0=[self.initial_guess_linfit, ])
-            # residuals = cur_track[1:stop, self.msd_msd_col] - linear_fn_v(cur_track[0:stop-1, self.msd_t_col],popt[0])
-            # ss_res = np.sum(residuals ** 2)
-            # rmse = np.mean(residuals ** 2) ** 0.5
-            # ss_tot = np.sum((cur_track[1:stop, self.msd_msd_col] - np.mean(cur_track[1:stop, self.msd_msd_col])) ** 2)
-            #####
-
-            r_squared = 1 - (ss_res / ss_tot)
+            rmse = np.mean(residuals ** 2) ** 0.5
+            ss_tot = np.sum((cur_track[1:stop, self.msd_msd_col] - np.mean(cur_track[1:stop, self.msd_msd_col])) ** 2)
+            r_squared = max(0, 1 - (ss_res / ss_tot))
+            perr = np.sqrt(np.diag(pcov))
 
             D = popt[0]
-            perr=np.sqrt(np.diag(pcov))
+            if (self.fit_msd_with_error_term):
+                E=popt[1]
+            else:
+                E=0
 
             self.D_linfits[i][self.D_lin_id_col]=id
             self.D_linfits[i][self.D_lin_D_col]=D
-            self.D_linfits[i][self.D_lin_err_col]=perr
+            self.D_linfits[i][self.D_lin_E_col]=E
+            self.D_linfits[i][self.D_lin_err_col]=perr[0]
             self.D_linfits[i][self.D_lin_rsq_col] = r_squared
             self.D_linfits[i][self.D_lin_rmse_col] = rmse
             self.D_linfits[i][self.D_lin_len_col] = cur_track[0][self.msd_len_col]
@@ -722,10 +777,6 @@ class msd_diffusion:
                 return m * x + b
             linear_fn_v = np.vectorize(linear_fn)
 
-            #a = np.asarray(np.log(cur_track[1:stop,self.msd_msd_col]), dtype=float, order=None)
-            #if not np.isfinite(a).all():
-            #    raise ValueError("array must not contain infs or NaNs")
-
             popt, pcov = curve_fit(linear_fn, np.log(cur_track[1:stop,self.msd_t_col]), np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])),
                                    p0=[self.initial_guess_aexp,np.log(4*self.initial_guess_linfit),])
             residuals = np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])) - linear_fn_v(np.log(cur_track[1:stop,self.msd_t_col]), popt[0],popt[1])
@@ -733,7 +784,7 @@ class msd_diffusion:
             rmse = np.mean(residuals**2)**0.5
             ss_tot = np.sum( ( np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])) - np.mean( np.nan_to_num(np.log(cur_track[1:stop,self.msd_msd_col])) ) ) ** 2 )
 
-            r_squared = 1 - (ss_res / ss_tot)
+            r_squared = max(0, 1 - (ss_res / ss_tot))
 
             self.D_loglogfits[i][self.D_loglog_id_col]=id
             self.D_loglogfits[i][self.D_loglog_K_col] = np.exp(popt[1]) / 4
@@ -744,6 +795,93 @@ class msd_diffusion:
             self.D_loglogfits[i][self.D_loglog_rmse_col] = rmse
             self.D_loglogfits[i][self.D_loglog_len_col] = cur_track[0][self.msd_len_col]
             self.D_loglogfits[i][self.D_loglog_fitlen_col] = stop - 1
+
+    # def fit_der_loglog_msd(self):
+    #     # fit local derivative of log-log MSD curve to get alpha-apparent=1/(1+c/tau), where c=(2*sigma^2)/(4D)
+    #     # As in https://pubmed.ncbi.nlm.nih.gov/12324428/
+    #     # Martin, et al: Apparent subdiffusion inherent to single particle tracking, Biophys J 2002
+    #
+    #     if (len(self.msd_tracks) == 0):
+    #         self.alpha_appfits = np.asarray([])
+    #         return ()
+    #
+    #     # filter for tracks > min-length; msd_len is one less than the track len
+    #     valid_tracks = self.msd_tracks[np.where(self.msd_tracks[:,
+    #                                             self.msd_len_col] >= (self.min_track_len_loglogfit - 1))]
+    #
+    #     if (len(valid_tracks) == 0):
+    #         self.alpha_appfits = np.asarray([])
+    #         return ()
+    #
+    #     ids = np.unique(valid_tracks[:, self.msd_id_col])
+    #     self.alpha_appfits = np.zeros((len(ids), self.alpha_app_num_cols,))
+    #     for i, id in enumerate(ids):
+    #         cur_track = valid_tracks[np.where(valid_tracks[:, self.msd_id_col] == id)]
+    #         stop = self.tlag_cutoff_loglogfit + 1
+    #
+    #         def alpha_app_fn(x, c):
+    #             return 1/(1+(c/x))
+    #         alpha_app_fn_v = np.vectorize(alpha_app_fn)
+    #
+    #         # local derivative of log-log MSD
+    #         alpha_app = np.diff(np.nan_to_num(np.log(cur_track[1:stop,
+    #                                                  self.msd_msd_col])))/np.diff(np.log(cur_track[1:stop,
+    #                                                                                      self.msd_t_col]))
+    #
+    #         # fit curve, local derivative as a function of tau
+    #         # TODO: NOTE: Should "weight the one-parameter fit inversely proportional to the density of the data"
+    #         popt, pcov = curve_fit(alpha_app_fn, np.log(cur_track[2:stop, self.msd_t_col]), alpha_app, p0=[1])
+    #         residuals = alpha_app - alpha_app_fn_v(np.log(cur_track[2:stop, self.msd_t_col]), popt[0])
+    #         ss_res = np.sum(residuals ** 2)
+    #         rmse = np.mean(residuals ** 2) ** 0.5
+    #         ss_tot = np.sum((alpha_app - np.mean(alpha_app)) ** 2)
+    #         r_squared = max(0, 1 - (ss_res / ss_tot))
+    #
+    #         self.alpha_appfits[i][self.alpha_app_id_col] = id
+    #         self.alpha_appfits[i][self.alpha_app_param_col] = popt[0]
+    #         self.alpha_appfits[i][self.alpha_app_errparam_col] = np.sqrt(np.diag(pcov))[0]
+    #         self.alpha_appfits[i][self.alpha_app_rsq_col] = r_squared
+    #         self.alpha_appfits[i][self.alpha_app_rmse_col] = rmse
+    #         self.alpha_appfits[i][self.alpha_app_len_col] = cur_track[0][self.msd_len_col]
+    #         self.alpha_appfits[i][self.alpha_app_fitlen_col] = stop - 2
+    #
+    # def fit_der_loglog_msd_ensemble(self):
+    #     # fit local derivative of log-log MSD curve to get alpha-apparent=1/(1+c/tau), where c=(2*sigma^2)/(4D)
+    #     # As in https://pubmed.ncbi.nlm.nih.gov/12324428/
+    #     # Martin, et al: Apparent subdiffusion inherent to single particle tracking, Biophys J 2002
+    #
+    #     # uses ensemble average to fit
+    #     if (len(self.ensemble_average) == 0):
+    #         self.alpha_app_param = 0
+    #         self.alpha_app_errparam = 0
+    #         self.alpha_app_rsq = 0
+    #         self.alpha_app_rmse = 0
+    #         return ()
+    #
+    #     stop = self.tlag_cutoff_loglogfit_ensemble
+    #
+    #     def alpha_app_fn(x, c):
+    #         return 1/(1+(c/x))
+    #     alpha_app_fn_v = np.vectorize(alpha_app_fn)
+    #
+    #     # local derivative of log-log MSD
+    #     alpha_app = np.diff(np.nan_to_num(np.log(self.ensemble_average[:stop, 1])))/np.diff(
+    #         np.log(self.ensemble_average[:stop, 0]))
+    #
+    #     # fit curve, local derivative as a function of tau
+    #     # TODO: NOTE: Should "weight the one-parameter fit inversely proportional to the density of the data"
+    #     popt, pcov = curve_fit(alpha_app_fn, np.log(self.ensemble_average[1:stop, 0]), alpha_app, p0=[1])
+    #     residuals = alpha_app - alpha_app_fn_v(np.log(self.ensemble_average[1:stop, 0]), popt[0])
+    #     ss_res = np.sum(residuals ** 2)
+    #     rmse = np.mean(residuals ** 2) ** 0.5
+    #     ss_tot = np.sum((alpha_app - np.mean(alpha_app)) ** 2)
+    #     r_squared = max(0, 1 - (ss_res / ss_tot))
+    #
+    #     self.alpha_app_param = popt[0]
+    #     self.alpha_app_errparam = np.sqrt(np.diag(pcov))[0]
+    #     self.alpha_app_rsq = r_squared
+    #     self.alpha_app_rmse = rmse
+
 
     def save_fit_data(self, file_name="fit_results.txt"):
         df = pd.DataFrame(self.D_linfits)

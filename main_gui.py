@@ -44,7 +44,7 @@ class ConditionsDialog(wx.Dialog):
 
 class RunDialog(wx.Dialog):
     def __init__(self, default_dir, default_filepath):
-        super().__init__(parent=None, title='Run GEM Analysis', size=(775, 800))
+        super().__init__(parent=None, title='Run GEM Analysis', size=(775, 825))
         panel = wx.Panel(self)
 
         wx.StaticText(panel, label="Enter directory to save the results:", pos=(10, 15))
@@ -80,15 +80,16 @@ class RunDialog(wx.Dialog):
         self.rb_track_start.SetValue(True)
         self.rb_frame_start.SetValue(False)
 
-        self.read_movie_metadata_chk = wx.CheckBox(panel, label="Use movie files to read scale/time-step", pos=(10, next_start+spacing))
-        self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+spacing*2))
-        self.draw_rainbow_tracks_chk = wx.CheckBox(panel, label="Draw rainbow tracks on image files", pos=(10, next_start+spacing*3))
-        self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI or mask files to filter tracks", pos=(10, next_start+spacing*4))
-        self.measure_gem_intensities_chk = wx.CheckBox(panel, label="Measure gem intensities", pos=(10, next_start + spacing * 5))
-        self.save_filtered_csvs_chk = wx.CheckBox(panel, label="Save filtered trajectory .csv files", pos=(10, next_start+spacing*6))
+        self.fit_with_error_term_chk = wx.CheckBox(panel, label="Linear fit with error term", pos=(10, next_start+spacing))
+        self.read_movie_metadata_chk = wx.CheckBox(panel, label="Use movie files to read scale/time-step", pos=(10, next_start+spacing*2))
+        self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+spacing*3))
+        self.draw_rainbow_tracks_chk = wx.CheckBox(panel, label="Draw rainbow tracks on image files", pos=(10, next_start+spacing*4))
+        self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI or mask files to filter tracks", pos=(10, next_start+spacing*5))
+        self.measure_gem_intensities_chk = wx.CheckBox(panel, label="Measure gem intensities", pos=(10, next_start + spacing * 6))
+        self.save_filtered_csvs_chk = wx.CheckBox(panel, label="Save filtered trajectory .csv files", pos=(10, next_start+spacing*7))
 
-        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(300, next_start+spacing*3))
-        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(450, next_start+spacing*3))
+        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(300, next_start+spacing*7))
+        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(450, next_start+spacing*7))
 
     def get_rainbow_tracks_by_frame(self):
         # returns True if plot rainbow tracks by frame
@@ -100,6 +101,8 @@ class RunDialog(wx.Dialog):
     def get_filepath(self):
         return self.chosen_file.GetPath()
 
+    def fit_with_error_term(self):
+        return self.fit_with_error_term_chk.IsChecked()
     def read_movie_metadata(self):
         return self.read_movie_metadata_chk.IsChecked()
     def uneven_time_steps(self):
@@ -540,8 +543,6 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     self.statusbar.SetStatusText('Please wait, running analysis...')
 
                     # run the analysis
-                    #def __init__(self, data_file, results_dir='.', use_movie_metadata=False, uneven_time_steps=False,
-                    #             make_rainbow_tracks=True, limit_to_ROIs=False, img_file_prefix='DNA_', log_file=''):
                     traj_an = tja.trajectory_analysis(input_file, results_dir=save_results_dir,
                                                       use_movie_metadata=read_movie_metadata,
                                                       uneven_time_steps=uneven_time_steps,
@@ -554,6 +555,8 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.micron_per_px = dlg.get_micron_per_px()
                     traj_an.ts_resolution=dlg.get_time_step_resolution()
                     traj_an.intensity_radius=dlg.get_r_for_intensity()
+
+                    traj_an.fit_msd_with_error_term = dlg.fit_with_error_term()
 
                     traj_an.output_filtered_tracks=save_filtered
 
@@ -575,15 +578,6 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.time_coded_rainbow_tracks_by_frame=dlg.get_rainbow_tracks_by_frame()
 
                     traj_an.write_params_to_log_file()
-
-                    # set up the plot ordering based on the conditions list object # TODO fix - ** load conditions from data file here **
-                    # we want ordering to be the same as it was entered in the conditions dialog or file
-                    # conditions_order = self.conditions_list[0][1:]
-                    # for i in range(1, len(self.conditions_list)):
-                    #     cur_order = [[a, b] for a in conditions_order for b in self.conditions_list[i][1:]]
-                    #     conditions_order = []
-                    #     for item in cur_order:
-                    #         conditions_order.append(item[0] + '_' + item[1])
 
                     traj_an.calculate_msd_and_diffusion()
                     traj_an.make_plot() #label_order=conditions_order)
