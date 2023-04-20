@@ -250,6 +250,7 @@ class trajectory_analysis:
         self.ts_resolution=0.005
 
         self.fit_msd_with_error_term=False
+        self.fit_msd_with_no_error_term = True
 
         # track (trajectory) files columns - user can adjust as needed
         self.traj_id_col = 'Trajectory'
@@ -497,6 +498,7 @@ class trajectory_analysis:
         self.log.write(f"Time between frames (s): {self.time_step}\n")
         self.log.write(f"Scale (microns per px): {self.micron_per_px}\n")
         self.log.write(f"Fit (linear) MSD curve with error term: {self.fit_msd_with_error_term}\n")
+        self.log.write(f"Fit (linear) MSD curve without error term: {self.fit_msd_with_no_error_term}\n")
 
         self.log.write(f"Min track length: {self.min_track_len_linfit}\n")
         self.log.write(f"Min track length (ensemble average): {self.min_track_len_ensemble}\n")
@@ -524,6 +526,7 @@ class trajectory_analysis:
         msd_diff_obj = msd_diff.msd_diffusion()
         msd_diff_obj.save_dir = self.results_dir
         msd_diff_obj.fit_msd_with_error_term = self.fit_msd_with_error_term
+        msd_diff_obj.fit_msd_with_no_error_term = self.fit_msd_with_no_error_term
 
         msd_diff_obj.min_track_len_linfit = self.min_track_len_linfit
 
@@ -2006,9 +2009,9 @@ class trajectory_analysis:
         # get total number of tracks for all groups/all files so I can make a large dataframe to fill
         full_length=0
         max_num_tracks=0
-        for group_i,group in enumerate(group_list):
+        for group_i, group in enumerate(group_list):
             group_df = self.grouped_data_list.get_group(group)
-            for index,data in group_df.iterrows():
+            for index, data in group_df.iterrows():
                 cur_dir = data[self._dir_col_name]
                 cur_file = data[self._file_col_name]
 
@@ -2034,8 +2037,23 @@ class trajectory_analysis:
         full_results1.insert(loc=0, column='id', value=0)
         full_results1['group']=''
         full_results1['group_readable']=''
-        full_results2_cols1=['D_median','D_mean','D_median_filt','D_mean_filt','avg_velocity','int_mean','int_std']
-        full_results2_cols2=['Trajectory','D','E','err','r_sq','rmse','track_len','D_max_tlag']
+
+        if (not (self.fit_msd_with_no_error_term or self.fit_msd_with_error_term)):
+            self.fit_msd_with_no_error_term=True
+
+        full_results2_cols1 = []
+        full_results2_cols2 = ['Trajectory']
+
+        if(self.fit_msd_with_no_error_term):
+            full_results2_cols1.extend(['D_median','D_mean','D_median_filt','D_mean_filt'])
+        if(self.fit_msd_with_error_term):
+            full_results2_cols1.extend(['D_Err_median', 'D_Err_mean', 'D_Err_median_filt', 'D_Err_mean_filt'])
+        full_results2_cols1.extend(['avg_velocity','int_mean','int_std'])
+
+        if (self.fit_msd_with_no_error_term):
+            full_results2_cols2.extend['D','r_sq','rmse','track_len','D_max_tlag']
+        if (self.fit_msd_with_error_term):
+            full_results2_cols2.extend['D_Err', 'E', 'r_sq_Err', 'rmse_Err', 'track_len_Err', 'D_max_tlag_Err']
         full_results2_cols3=['K','aexp','aexp_r_sq','aexp_rmse']
 
         cols_len=len(full_results2_cols1) + len(full_results2_cols2) + len(full_results2_cols3)
@@ -2058,29 +2076,44 @@ class trajectory_analysis:
 
         # make a dataframe containing only median and mean D values for each movie
         self.data_list_with_results = self.data_list.copy()
-        self.data_list_with_results['D_median']=0.0
-        self.data_list_with_results['D_mean']=0.0
-        self.data_list_with_results['D_median_filtered'] = 0.0
-        self.data_list_with_results['D_mean_filtered'] = 0.0
-        self.data_list_with_results['num_tracks'] = 0
-        self.data_list_with_results['num_tracks_D'] = 0
-        self.data_list_with_results['area'] = ''
-        self.data_list_with_results['ensemble_D'] = ''
-        self.data_list_with_results['ensemble_E'] = ''
-        self.data_list_with_results['ensemble_r_sq'] = ''
+        if (self.fit_msd_with_no_error_term):
+            self.data_list_with_results['D_median']=0.0
+            self.data_list_with_results['D_mean']=0.0
+            self.data_list_with_results['D_median_filtered'] = 0.0
+            self.data_list_with_results['D_mean_filtered'] = 0.0
+            self.data_list_with_results['ensemble_D'] = ''
+            self.data_list_with_results['ensemble_r_sq'] = ''
+
+        if (self.fit_msd_with_error_term):
+            self.data_list_with_results['D_Err_median']=0.0
+            self.data_list_with_results['D_Err_mean']=0.0
+            self.data_list_with_results['D_Err_median_filtered'] = 0.0
+            self.data_list_with_results['D_Err_mean_filtered'] = 0.0
+            self.data_list_with_results['ensemble_D_Err'] = ''
+            self.data_list_with_results['ensemble_Err'] = ''
+            self.data_list_with_results['ensemble_r_sq_Err'] = ''
+
         self.data_list_with_results['ensemble_loglog_K'] = ''
         self.data_list_with_results['ensemble_loglog_aexp'] = ''
         self.data_list_with_results['ensemble_loglog_r_sq'] = ''
+        self.data_list_with_results['num_tracks'] = 0
+        self.data_list_with_results['num_tracks_D'] = 0
+        self.data_list_with_results['area'] = ''
         self.data_list_with_results['group']=''
         self.data_list_with_results['group_readable'] = ''
 
-        # make a dataframe containing summary values by group
-        colnames=['group', 'group_readable',
-                  'ensemble_D', 'ensemble_E', 'ensemble_r_sq',
-                  'ensemble_loglog_K', 'ensemble_loglog_aexp', 'ensemble_loglog_r_sq',
-                  'D_group_median', 'D_group_mean', 'D_group_std', 'D_group_sem',
-                  'aexp_group_median', 'aexp_group_mean', 'aexp_group_std', 'aexp_group_sem',
-                  'group_num_tracks', 'ensemble_num_tracks']
+        # make a dataframe containing summary values by group, and ensemble-avg MSD fitting results
+        colnames=['group', 'group_readable']
+        if (self.fit_msd_with_no_error_term):
+            colnames.extend(['ensemble_D', 'ensemble_r_sq',
+                            'D_group_median', 'D_group_mean', 'D_group_std', 'D_group_sem'])
+        if (self.fit_msd_with_error_term):
+            colnames.extend(['ensemble_D_Err', 'ensemble_Err', 'ensemble_r_sq_Err',
+                            'D_Err_group_median', 'D_Err_group_mean', 'D_Err_group_std', 'D_Err_group_sem'])
+
+        colnames.extend(['ensemble_loglog_K', 'ensemble_loglog_aexp', 'ensemble_loglog_r_sq',
+                         'aexp_group_median', 'aexp_group_mean', 'aexp_group_std', 'aexp_group_sem',
+                         'group_num_tracks', 'ensemble_num_tracks'])
         self.results_by_group = pd.DataFrame(np.empty((len(group_list), len(colnames)), dtype=np.str), columns=colnames)
 
         msd_diff_obj = self.make_msd_diff_object()
@@ -2110,11 +2143,13 @@ class trajectory_analysis:
             for cur_file in files_list:
                 files_group = group_df[group_df[self._file_col_name]==cur_file]
                 cur_fig=None
+                cur_fig_Err=None
                 cur_fig_ss=None
                 cur_fig_time = None
                 cur_fig_time_plain = None
                 #cur_fig_roi=None
                 cur_ax=None
+                cur_ax_Err=None
                 cur_ax_ss=None
                 cur_ax_time = None
                 cur_ax_time_plain = None
@@ -2126,11 +2161,19 @@ class trajectory_analysis:
                     if (common_index in self.valid_img_files and self.valid_img_files[common_index] != ''):
                         bk_img = io.imread(self.valid_img_files[common_index])
 
-                        # plot figure to draw tracks by Deff with image in background
-                        cur_fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.rainbow_tracks_DPI)
-                        cur_ax = cur_fig.add_subplot(1, 1, 1)
-                        cur_ax.axis("off")
-                        cur_ax.imshow(bk_img, cmap="gray")
+                        if(self.fit_msd_with_no_error_term):
+                            # plot figure to draw tracks by Deff with image in background
+                            cur_fig = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.rainbow_tracks_DPI)
+                            cur_ax = cur_fig.add_subplot(1, 1, 1)
+                            cur_ax.axis("off")
+                            cur_ax.imshow(bk_img, cmap="gray")
+
+                        if(self.fit_msd_with_error_term):
+                            # plot figure to draw tracks by Deff (Err) with image in background
+                            cur_fig_Err = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.rainbow_tracks_DPI)
+                            cur_ax_Err = cur_fig_Err.add_subplot(1, 1, 1)
+                            cur_ax_Err.axis("off")
+                            cur_ax_Err.imshow(bk_img, cmap="gray")
 
                         # plot figure to draw tracks by ss with image in background
                         cur_fig_ss = plt.figure(figsize=(bk_img.shape[1] / 100, bk_img.shape[0] / 100), dpi=self.rainbow_tracks_DPI)
@@ -2260,10 +2303,24 @@ class trajectory_analysis:
 
                     # rainbow tracks
                     if(self.make_rainbow_tracks): # lw is line width in the matplotlib function - convert from pixel size - using 96 PPI (???)
-                        if(cur_ax != None):
-                            msd_diff_obj.save_tracks_to_img(cur_ax, len_cutoff='none', remove_tracks=False,
-                                                        min_Deff=self.min_D_rainbow_tracks,
-                                                        max_Deff=self.max_D_rainbow_tracks, lw=self.line_width_rainbow_tracks)
+                        if(self.fit_msd_with_no_error_term and cur_ax != None):
+                            msd_diff_obj.save_tracks_to_img(cur_ax,
+                                                            len_cutoff='none',
+                                                            remove_tracks=False,
+                                                            error_term=False,
+                                                            min_Deff=self.min_D_rainbow_tracks,
+                                                            max_Deff=self.max_D_rainbow_tracks,
+                                                            lw=self.line_width_rainbow_tracks)
+
+                        if (self.fit_msd_with_error_term and cur_ax_Err != None):
+                            msd_diff_obj.save_tracks_to_img(cur_ax_Err,
+                                                            len_cutoff='none',
+                                                            remove_tracks=False,
+                                                            error_term=True,
+                                                            min_Deff=self.min_D_rainbow_tracks,
+                                                            max_Deff=self.max_D_rainbow_tracks,
+                                                            lw=self.line_width_rainbow_tracks)
+
                         if(cur_ax_ss != None):
                             msd_diff_obj.save_tracks_to_img_ss(cur_ax_ss, min_ss=self.min_ss_rainbow_tracks,
                                                            max_ss=self.max_ss_rainbow_tracks, lw=self.line_width_rainbow_tracks)
@@ -2295,20 +2352,7 @@ class trajectory_analysis:
                                               group_readable)
                         continue
 
-                    D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
-                    D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
-
-                    D_linfits_filtered = msd_diff_obj.D_linfits[np.where(
-                        (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] <= self.max_D_cutoff) &
-                        (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] >= self.min_D_cutoff))]
-
-                    if(len(D_linfits_filtered)==0):
-                        D_median_filt = np.nan
-                        D_mean_filt = np.nan
-                    else:
-                        D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
-                        D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
-
+                    # TODO: stopped here #
                     # Fill data array with eff-D
                     cur_data = msd_diff_obj.D_linfits[:,:]
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'id'] = index
@@ -2316,10 +2360,64 @@ class trajectory_analysis:
                         self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),k+1]=self.data_list.loc[index][k]
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'group']=file_str
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'group_readable']=group_readable
-                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median']=D_median
-                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean']=D_mean
-                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median_filt']=D_median_filt
-                    self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean_filt']=D_mean_filt
+
+                    if(self.fit_msd_with_no_error_term):
+                        D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
+                        D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
+                        D_linfits_filtered = msd_diff_obj.D_linfits[np.where(
+                            (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] <= self.max_D_cutoff) &
+                            (msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col] >= self.min_D_cutoff))]
+                        if (len(D_linfits_filtered) == 0):
+                            D_median_filt = np.nan
+                            D_mean_filt = np.nan
+                        else:
+                            D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
+                            D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median']=D_median
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean']=D_mean
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median_filt']=D_median_filt
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean_filt']=D_mean_filt
+
+                        self.data_list_with_results.at[index, 'D_median'] = D_median
+                        self.data_list_with_results.at[index, 'D_mean'] = D_mean
+                        self.data_list_with_results.at[index, 'D_median_filtered'] = D_median_filt
+                        self.data_list_with_results.at[index, 'D_mean_filtered'] = D_mean_filt
+                        self.data_list_with_results.at[index, 'ensemble_D'] = msd_diff_obj.ensemble_fit_D
+                        self.data_list_with_results.at[index, 'ensemble_r_sq'] = msd_diff_obj.ensemble_fit_rsq
+
+                    if (self.fit_msd_with_error_term):
+                        D_median = np.median(msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col])
+                        D_mean = np.mean(msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col])
+                        D_linfits_filtered = msd_diff_obj.D_linfits_E[np.where(
+                            (msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col] <= self.max_D_cutoff) &
+                            (msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col] >= self.min_D_cutoff))]
+                        if (len(D_linfits_filtered) == 0):
+                            D_median_filt = np.nan
+                            D_mean_filt = np.nan
+                        else:
+                            D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_E_D_col])
+                            D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_E_D_col])
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_median'] = D_median
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_mean'] = D_mean
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_median_filt'] = D_median_filt
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_mean_filt'] = D_mean_filt
+
+                        self.data_list_with_results.at[index, 'D_Err_median'] = D_median
+                        self.data_list_with_results.at[index, 'D_Err_mean'] = D_mean
+                        self.data_list_with_results.at[index, 'D_Err_median_filtered'] = D_median_filt
+                        self.data_list_with_results.at[index, 'D_Err_mean_filtered'] = D_mean_filt
+                        self.data_list_with_results.at[index, 'ensemble_D_Err'] = msd_diff_obj.ensemble_fit_E_D
+                        self.data_list_with_results.at[index, 'ensemble_Err'] = msd_diff_obj.ensemble_fit_E
+                        self.data_list_with_results.at[index, 'ensemble_r_sq_Err'] = msd_diff_obj.ensemble_fit_E_rsq
+
+                    self.data_list_with_results.at[index, 'num_tracks'] = len(msd_diff_obj.track_lengths)
+                    self.data_list_with_results.at[index, 'num_tracks_D'] = len(msd_diff_obj.D_linfits)
+                    self.data_list_with_results.at[index, 'area'] = roi_area
+                    self.data_list_with_results.at[index, 'group'] = file_str
+                    self.data_list_with_results.at[index, 'group_readable'] = group_readable
+                    self.data_list_with_results.at[index, 'ensemble_loglog_K'] = msd_diff_obj.anomolous_fit_K
+                    self.data_list_with_results.at[index, 'ensemble_loglog_aexp'] = msd_diff_obj.anomolous_fit_alpha
+                    self.data_list_with_results.at[index, 'ensemble_loglog_r_sq'] = msd_diff_obj.anomolous_fit_rsq
 
                     # output avg_velocity but only for the tracks were used in Deff calculation
                     self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_velocity'] = (
@@ -2362,39 +2460,31 @@ class trajectory_analysis:
                         self.data_list_with_Rg.loc[Rg_i+1,"0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.r_of_g[:,1]
                         self.data_list_with_Rg.loc[Rg_i+2,"0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.avg_velocity[:,1]
 
-                    # fill summary data array
-                    self.data_list_with_results.at[index, 'D_median'] = D_median
-                    self.data_list_with_results.at[index, 'D_mean'] = D_mean
-                    self.data_list_with_results.at[index, 'D_median_filtered'] = D_median_filt
-                    self.data_list_with_results.at[index, 'D_mean_filtered'] = D_mean_filt
-                    self.data_list_with_results.at[index, 'num_tracks'] = len(msd_diff_obj.track_lengths)
-                    self.data_list_with_results.at[index, 'num_tracks_D'] = len(msd_diff_obj.D_linfits)
-                    self.data_list_with_results.at[index, 'area'] = roi_area
-                    self.data_list_with_results.at[index, 'group'] = file_str
-                    self.data_list_with_results.at[index, 'group_readable']=group_readable
-                    self.data_list_with_results.at[index, 'ensemble_D']=msd_diff_obj.ensemble_fit_D
-                    self.data_list_with_results.at[index, 'ensemble_E'] = msd_diff_obj.ensemble_fit_E
-                    self.data_list_with_results.at[index, 'ensemble_r_sq'] = msd_diff_obj.ensemble_fit_rsq
-                    self.data_list_with_results.at[index, 'ensemble_loglog_K'] = msd_diff_obj.anomolous_fit_K
-                    self.data_list_with_results.at[index, 'ensemble_loglog_aexp'] = msd_diff_obj.anomolous_fit_alpha
-                    self.data_list_with_results.at[index, 'ensemble_loglog_r_sq'] = msd_diff_obj.anomolous_fit_rsq
-
                     if(save_per_file_data):
                         msd_diff_obj.save_msd_data(file_name=file_str + '_' + str(index) + "_MSD.txt")
                         msd_diff_obj.save_fit_data(file_name=file_str + '_' + str(index) + "_Dlin.txt")
 
                     full_data_i += len(cur_data)
                     Rg_i += 3
+
                     self.log.write("Processed "+str(index) +" "+cur_file+" for MSD and Diffusion coeff.\n")
                     self.log.flush()
 
                 # ran through all the rows with same csv/image file -- now save the rainbow tracks
                 if(self.make_rainbow_tracks and rt_image_found):
                     # save figure of lines plotted on bk_img
-                    cur_fig.tight_layout()
-                    out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_Deff.tif'
-                    cur_fig.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
-                    plt.close(cur_fig)
+
+                    if(self.fit_msd_with_no_error_term):
+                        cur_fig.tight_layout()
+                        out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_Deff.tif'
+                        cur_fig.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
+                        plt.close(cur_fig)
+
+                    if (self.fit_msd_with_error_term):
+                        cur_fig_Err.tight_layout()
+                        out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_Deff-Err.tif'
+                        cur_fig_Err.savefig(self.results_dir + '/' + out_file, dpi=self.rainbow_tracks_DPI)
+                        plt.close(cur_fig_Err)
 
                     cur_fig_ss.tight_layout()
                     out_file = os.path.split(self.valid_img_files[common_index])[1][:-4] + '_tracks_ss.tif'
@@ -2427,9 +2517,15 @@ class trajectory_analysis:
             # output the fitting results
             self.results_by_group.at[group_i,'group']=file_str
             self.results_by_group.at[group_i,'group_readable']=group_readable
-            self.results_by_group.at[group_i,'ensemble_D'] = msd_diff_obj.ensemble_fit_D
-            self.results_by_group.at[group_i, 'ensemble_E'] = msd_diff_obj.ensemble_fit_E
-            self.results_by_group.at[group_i,'ensemble_r_sq'] = msd_diff_obj.ensemble_fit_rsq
+
+            if (self.fit_msd_with_no_error_term):
+                self.results_by_group.at[group_i,'ensemble_D'] = msd_diff_obj.ensemble_fit_D
+                self.results_by_group.at[group_i,'ensemble_r_sq'] = msd_diff_obj.ensemble_fit_rsq
+            if (self.fit_msd_with_error_term):
+                self.results_by_group.at[group_i, 'ensemble_D_Err'] = msd_diff_obj.ensemble_fit_E_D
+                self.results_by_group.at[group_i, 'ensemble_Err'] = msd_diff_obj.ensemble_fit_E
+                self.results_by_group.at[group_i, 'ensemble_r_sq_Err'] = msd_diff_obj.ensemble_fit_E_rsq
+
             self.results_by_group.at[group_i,'ensemble_loglog_K'] = msd_diff_obj.anomolous_fit_K
             self.results_by_group.at[group_i,'ensemble_loglog_aexp'] = msd_diff_obj.anomolous_fit_alpha
             self.results_by_group.at[group_i,'ensemble_loglog_r_sq'] = msd_diff_obj.anomolous_fit_rsq
@@ -2459,11 +2555,17 @@ class trajectory_analysis:
             cur_group = row[1]['group']
             cur_group_data = self.data_list_with_results_full[self.data_list_with_results_full['group'] == cur_group]['D']
             if(len(cur_group_data)>1):
+                if(self.fit_msd_with_no_error_term):
+                    self.results_by_group.loc[row[0], 'D_group_median'] = np.median(cur_group_data)
+                    self.results_by_group.loc[row[0], 'D_group_mean'] = np.mean(cur_group_data)
+                    self.results_by_group.loc[row[0], 'D_group_std'] = np.std(cur_group_data)
+                    self.results_by_group.loc[row[0], 'D_group_sem'] = np.std(cur_group_data)/np.sqrt(len(cur_group_data))
 
-                self.results_by_group.loc[row[0],'D_group_median']=np.median(cur_group_data)
-                self.results_by_group.loc[row[0], 'D_group_mean'] = np.mean(cur_group_data)
-                self.results_by_group.loc[row[0], 'D_group_std'] = np.std(cur_group_data)
-                self.results_by_group.loc[row[0], 'D_group_sem'] = np.std(cur_group_data)/np.sqrt(len(cur_group_data))
+                if (self.fit_msd_with_error_term):
+                    self.results_by_group.loc[row[0], 'D_Err_group_median'] = np.median(cur_group_data)
+                    self.results_by_group.loc[row[0], 'D_Err_group_mean'] = np.mean(cur_group_data)
+                    self.results_by_group.loc[row[0], 'D_Err_group_std'] = np.std(cur_group_data)
+                    self.results_by_group.loc[row[0], 'D_Err_group_sem'] = np.std(cur_group_data) / np.sqrt(len(cur_group_data))
 
                 cur_group_data = self.data_list_with_results_full[self.data_list_with_results_full['group'] == cur_group]['aexp']
 

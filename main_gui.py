@@ -73,36 +73,47 @@ class RunDialog(wx.Dialog):
             self.text_ctrl_run_params.append(wx.TextCtrl(panel, id=wx.ID_ANY, value=str(default_values[i]), pos=(400, start_y+i*spacing)))
 
         next_start=start_y+(i+1)*spacing+10
-
         wx.StaticText(panel, label="Color time-coded rainbow tracks relative to:", pos=(10, next_start))
         self.rb_track_start = wx.RadioButton(panel, label='track start', pos=(300, next_start), style=wx.RB_GROUP)
-        self.rb_frame_start = wx.RadioButton(panel, label='frame start', pos=(400, next_start), )
+        self.rb_frame_start = wx.RadioButton(panel, label='frame start', pos=(415, next_start), )
         self.rb_track_start.SetValue(True)
         self.rb_frame_start.SetValue(False)
 
-        self.fit_with_error_term_chk = wx.CheckBox(panel, label="Linear fit with error term", pos=(10, next_start+spacing))
-        self.read_movie_metadata_chk = wx.CheckBox(panel, label="Use movie files to read scale/time-step", pos=(10, next_start+spacing*2))
-        self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+spacing*3))
-        self.draw_rainbow_tracks_chk = wx.CheckBox(panel, label="Draw rainbow tracks on image files", pos=(10, next_start+spacing*4))
-        self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI or mask files to filter tracks", pos=(10, next_start+spacing*5))
-        self.measure_gem_intensities_chk = wx.CheckBox(panel, label="Measure gem intensities", pos=(10, next_start + spacing * 6))
-        self.save_filtered_csvs_chk = wx.CheckBox(panel, label="Save filtered trajectory .csv files", pos=(10, next_start+spacing*7))
+        next_start = next_start+spacing
+        wx.StaticText(panel, label="Linear fit with", pos=(10, next_start))
+        self.rb_no_error_term = wx.RadioButton(panel, label='no error term', pos=(300, next_start), style=wx.RB_GROUP)
+        self.rb_error_term = wx.RadioButton(panel, label='error term', pos=(415, next_start), )
+        self.rb_both_error_term = wx.RadioButton(panel, label='both', pos=(515, next_start), )
+        self.rb_no_error_term.SetValue(True)
+        self.rb_error_term.SetValue(False)
+        self.rb_both_error_term.SetValue(False)
 
-        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(300, next_start+spacing*7))
-        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(450, next_start+spacing*7))
+        self.read_movie_metadata_chk = wx.CheckBox(panel, label="Use movie files to read scale/time-step", pos=(10, next_start+spacing))
+        self.uneven_time_steps_chk = wx.CheckBox(panel, label="Check for uneven time steps", pos=(10, next_start+spacing*2))
+        self.draw_rainbow_tracks_chk = wx.CheckBox(panel, label="Draw rainbow tracks on image files", pos=(10, next_start+spacing*3))
+        self.limit_with_rois_chk = wx.CheckBox(panel, label="Use ImageJ ROI or mask files to filter tracks", pos=(10, next_start+spacing*4))
+        self.measure_gem_intensities_chk = wx.CheckBox(panel, label="Measure gem intensities", pos=(10, next_start + spacing * 5))
+        self.save_filtered_csvs_chk = wx.CheckBox(panel, label="Save filtered trajectory .csv files", pos=(10, next_start+spacing*6))
+
+        self.run_button = wx.Button(panel, wx.ID_OK, label="Run Analysis", size=(100, 20), pos=(300, next_start+spacing*6))
+        self.cancel_button = wx.Button(panel, wx.ID_CANCEL, label="Cancel", size=(75, 20), pos=(450, next_start+spacing*6))
 
     def get_rainbow_tracks_by_frame(self):
         # returns True if plot rainbow tracks by frame
         # returns False if plot rainbow tracks by track
         return self.rb_frame_start.GetValue()
 
+    def get_fit_with_error_term(self):
+        return self.rb_error_term.GetValue() or self.rb_both_error_term.GetValue()
+
+    def get_fit_with_no_error_term(self):
+        return self.rb_no_error_term.GetValue() or self.rb_both_error_term.GetValue()
+
     def get_save_dir(self):
         return self.chosen_dir.GetPath()
     def get_filepath(self):
         return self.chosen_file.GetPath()
 
-    def fit_with_error_term(self):
-        return self.fit_with_error_term_chk.IsChecked()
     def read_movie_metadata(self):
         return self.read_movie_metadata_chk.IsChecked()
     def uneven_time_steps(self):
@@ -542,6 +553,10 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                 else:
                     self.statusbar.SetStatusText('Please wait, running analysis...')
 
+                    fit_msd_with_error_term = dlg.get_fit_with_error_term()
+
+                    fit_msd_with_no_error_term = dlg.get_fit_with_no_error_term()
+
                     # run the analysis
                     traj_an = tja.trajectory_analysis(input_file, results_dir=save_results_dir,
                                                       use_movie_metadata=read_movie_metadata,
@@ -556,7 +571,9 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.ts_resolution=dlg.get_time_step_resolution()
                     traj_an.intensity_radius=dlg.get_r_for_intensity()
 
-                    traj_an.fit_msd_with_error_term = dlg.fit_with_error_term()
+                    traj_an.fit_msd_with_error_term = dlg.get_fit_with_error_term()
+
+                    traj_an.fit_msd_with_no_error_term = dlg.get_fit_with_no_error_term()
 
                     traj_an.output_filtered_tracks=save_filtered
 
