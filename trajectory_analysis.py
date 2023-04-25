@@ -2042,23 +2042,22 @@ class trajectory_analysis:
             self.fit_msd_with_no_error_term=True
 
         full_results2_cols1 = []
-        full_results2_cols2 = ['Trajectory']
-
         if(self.fit_msd_with_no_error_term):
             full_results2_cols1.extend(['D_median','D_mean','D_median_filt','D_mean_filt'])
         if(self.fit_msd_with_error_term):
             full_results2_cols1.extend(['D_Err_median', 'D_Err_mean', 'D_Err_median_filt', 'D_Err_mean_filt'])
         full_results2_cols1.extend(['avg_velocity','int_mean','int_std'])
 
+        full_results2_cols2 = []
         if (self.fit_msd_with_no_error_term):
-            full_results2_cols2.extend['D','r_sq','rmse','track_len','D_max_tlag']
+            full_results2_cols2.extend(['Trajectory','D','r_sq','rmse','track_len','D_max_tlag'])
         if (self.fit_msd_with_error_term):
-            full_results2_cols2.extend['D_Err', 'E', 'r_sq_Err', 'rmse_Err', 'track_len_Err', 'D_max_tlag_Err']
+            full_results2_cols2.extend(['Trajectory','D_Err', 'E', 'r_sq_Err', 'rmse_Err', 'track_len_Err', 'D_max_tlag_Err'])
         full_results2_cols3=['K','aexp','aexp_r_sq','aexp_rmse']
 
         cols_len=len(full_results2_cols1) + len(full_results2_cols2) + len(full_results2_cols3)
         full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2+full_results2_cols3)
-        self.data_list_with_results_full = pd.concat([full_results1,full_results2], axis=1)
+        self.data_list_with_results_full = pd.concat([full_results1, full_results2], axis=1)
 
         # make a dataframe for the radius of gyration, avg velocity, and track length.  for each, the distribution will be output in a row
         if(self.radius_of_gyration):
@@ -2352,9 +2351,24 @@ class trajectory_analysis:
                                               group_readable)
                         continue
 
-                    # TODO: stopped here #
-                    # Fill data array with eff-D
-                    cur_data = msd_diff_obj.D_linfits[:,:]
+                    # Fill data array
+                    cols_noErr = [msd_diff_obj.D_lin_id_col,msd_diff_obj.D_lin_D_col,msd_diff_obj.D_lin_rsq_col,
+                                  msd_diff_obj.D_lin_rmse_col,msd_diff_obj.D_lin_len_col,msd_diff_obj.D_lin_fitlen_col]
+                    cols_Err = [msd_diff_obj.D_lin_E_id_col, msd_diff_obj.D_lin_E_D_col, msd_diff_obj.D_lin_E_E_col,
+                                msd_diff_obj.D_lin_E_rsq_col, msd_diff_obj.D_lin_E_rmse_col,
+                                msd_diff_obj.D_lin_E_len_col, msd_diff_obj.D_lin_E_fitlen_col]
+
+                    if (self.fit_msd_with_no_error_term):
+                        cur_data_noE = msd_diff_obj.D_linfits[:, cols_noErr]
+
+                    if (self.fit_msd_with_error_term):
+                        cur_data_E = msd_diff_obj.D_linfits_E[:, cols_Err]
+
+                    if (self.fit_msd_with_no_error_term):
+                        cur_data = cur_data_noE
+                    else:
+                        cur_data = cur_data_E
+
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'id'] = index
                     for k in range(len(self.data_list.columns)):
                         self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data),k+1]=self.data_list.loc[index][k]
@@ -2373,6 +2387,7 @@ class trajectory_analysis:
                         else:
                             D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
                             D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_D_col])
+
                         self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median']=D_median
                         self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_mean']=D_mean
                         self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'D_median_filt']=D_median_filt
@@ -2424,6 +2439,7 @@ class trajectory_analysis:
                         msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0],
                                                           msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col])][:,1])
 
+                    # output average and stdev of track intensities
                     if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_mean'] = (
                             msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0],
@@ -2432,8 +2448,16 @@ class trajectory_analysis:
                             msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0],
                                                                    msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col])][:, 2])
 
+                    # output eff-D and associated data
                     next_col = len(full_results1.columns) + len(full_results2_cols1)
-                    self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data), next_col:next_col+len(cur_data[0])] = cur_data
+                    if (self.fit_msd_with_no_error_term):
+                        self.data_list_with_results_full.iloc[full_data_i:full_data_i+len(cur_data_noE),
+                                                              next_col:next_col+len(cur_data_noE[0])] = cur_data_noE
+                        next_col = next_col+len(cur_data_noE[0])
+
+                    if (self.fit_msd_with_error_term):
+                        self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data_E),
+                                                              next_col:next_col + len(cur_data_E[0])] = cur_data_E
 
                     # add in the alpha information for each track
                     next_col = len(full_results1.columns) + len(full_results2_cols1) + len(full_results2_cols2)
