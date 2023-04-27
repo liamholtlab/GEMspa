@@ -672,7 +672,6 @@ class trajectory_analysis:
         for row in self.results_by_group.iterrows():
             group = row[1]['group_readable']
             alpha=row[1]['ensemble_loglog_aexp']
-            deff=row[1]['ensemble_D']
             y_vals = np.asarray(row[1][plot_cols]).astype(float)
 
             # loglog plot and anomolous exp
@@ -731,83 +730,90 @@ class trajectory_analysis:
             print("Error: No data")
             return ()
 
-        fig,axs = plt.subplots(1,num_groups,figsize=(num_groups * 10, 10))
-        group_i=0
+        y_cols = []
+        if(self.fit_msd_with_no_error_term):
+            y_cols.append('D')
+        if (self.fit_msd_with_error_term):
+            y_cols.append('D_Err')
 
-        xlim_min_all=0
-        xlim_max_all=0
-        ylim_min_all=0
-        ylim_max_all=0
-        for group in np.unique(self.data_list_with_results_full['group_readable']):
-            group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
+        for y_col in y_cols:
+            fig,axs = plt.subplots(1,num_groups,figsize=(num_groups * 10, 10))
+            group_i=0
 
-            if(len(group_data)>=min_pts):
-                if(num_groups > 1):
-                    cur_ax=axs[group_i]
-                else:
-                    cur_ax=axs
+            xlim_min_all=0
+            xlim_max_all=0
+            ylim_min_all=0
+            ylim_max_all=0
+            for group in np.unique(self.data_list_with_results_full['group_readable']):
+                group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
 
-                to_plot1 = np.log(group_data['D'])
-                to_plot2 = group_data['aexp']
+                if(len(group_data)>=min_pts):
+                    if(num_groups > 1):
+                        cur_ax=axs[group_i]
+                    else:
+                        cur_ax=axs
 
-                sns.kdeplot(x=to_plot1, y=to_plot2, color='black', linewidths=0.1, ax=cur_ax)
-                sns.kdeplot(x=to_plot1, y=to_plot2, cmap='Blues', fill=True, thresh=0, ax=cur_ax, ) #levels=10)
+                    to_plot1 = np.log(group_data[y_col])
+                    to_plot2 = group_data['aexp']
 
-                cur_ax.scatter(to_plot1, to_plot2, linewidths=0, s=10, marker='.', color='black')
+                    sns.kdeplot(x=to_plot1, y=to_plot2, color='black', linewidths=0.1, ax=cur_ax)
+                    sns.kdeplot(x=to_plot1, y=to_plot2, cmap='Blues', fill=True, thresh=0, ax=cur_ax, ) #levels=10)
 
-                cur_ax.axvline(-1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
-                cur_ax.axhline(1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
+                    cur_ax.scatter(to_plot1, to_plot2, linewidths=0, s=10, marker='.', color='black')
 
-                cur_ax.set_title(group)
+                    cur_ax.axvline(-1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
+                    cur_ax.axhline(1, linewidth=0.1, linestyle='--', color='black', alpha=0.5)
 
-                cur_ax.set_xlabel(f"$log(D_{{{d_label}ms}})$")
-                cur_ax.set_ylabel(r'$\alpha$')
+                    cur_ax.set_title(group)
 
-                (xlim_min, xlim_max) = cur_ax.get_xlim()
-                (ylim_min, ylim_max) = cur_ax.get_ylim()
+                    cur_ax.set_xlabel(f"$log(D_{{{d_label}ms}})$")
+                    cur_ax.set_ylabel(r'$\alpha$')
 
-                if(group_i == 0):
-                    xlim_min_all=xlim_min
-                    ylim_min_all=ylim_min
-                    xlim_max_all=xlim_max
-                    ylim_max_all=ylim_max
-                else:
-                    if(xlim_min<xlim_min_all):
+                    (xlim_min, xlim_max) = cur_ax.get_xlim()
+                    (ylim_min, ylim_max) = cur_ax.get_ylim()
+
+                    if(group_i == 0):
                         xlim_min_all=xlim_min
-                    if (ylim_min < ylim_min_all):
-                        ylim_min_all = ylim_min
-                    if(xlim_max>xlim_max_all):
+                        ylim_min_all=ylim_min
                         xlim_max_all=xlim_max
-                    if (ylim_max > ylim_max_all):
-                        ylim_max_all = ylim_max
+                        ylim_max_all=ylim_max
+                    else:
+                        if(xlim_min<xlim_min_all):
+                            xlim_min_all=xlim_min
+                        if (ylim_min < ylim_min_all):
+                            ylim_min_all = ylim_min
+                        if(xlim_max>xlim_max_all):
+                            xlim_max_all=xlim_max
+                        if (ylim_max > ylim_max_all):
+                            ylim_max_all = ylim_max
 
-                group_i+=1
-            else:
-                print(f"Did not make alpha-D heatmap for group {group} since there were less than {min_pts} trajectories.")
-
-        if(num_groups > 1):
-            for ax in axs:
-                if(len(xlims) == 2):
-                    ax.set_xlim(xlims)
+                    group_i+=1
                 else:
-                    ax.set_xlim((xlim_min_all, xlim_max_all))
+                    print(f"Did not make alpha-D heatmap for group {group} since there were less than {min_pts} trajectories.")
+
+            if(num_groups > 1):
+                for ax in axs:
+                    if(len(xlims) == 2):
+                        ax.set_xlim(xlims)
+                    else:
+                        ax.set_xlim((xlim_min_all, xlim_max_all))
+                    if (len(ylims) == 2):
+                        ax.set_ylim(ylims)
+                    else:
+                        ax.set_ylim((ylim_min_all, ylim_max_all))
+            else:
+                if (len(xlims) == 2):
+                    axs.set_xlim(xlims)
+                else:
+                    axs.set_xlim((xlim_min_all, xlim_max_all))
                 if (len(ylims) == 2):
-                    ax.set_ylim(ylims)
+                    axs.set_ylim(ylims)
                 else:
-                    ax.set_ylim((ylim_min_all, ylim_max_all))
-        else:
-            if (len(xlims) == 2):
-                axs.set_xlim(xlims)
-            else:
-                axs.set_xlim((xlim_min_all, xlim_max_all))
-            if (len(ylims) == 2):
-                axs.set_ylim(ylims)
-            else:
-                axs.set_ylim((ylim_min_all, ylim_max_all))
+                    axs.set_ylim((ylim_min_all, ylim_max_all))
 
-        fig.savefig(self.results_dir + '/alpha_D_heatmaps.pdf')
-        fig.clf()
-        plt.close(fig)
+            fig.savefig(self.results_dir + f'/alpha_{y_col}_heatmaps.pdf')
+            fig.clf()
+            plt.close(fig)
 
     def plot_distribution_Deff(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 ,
                                min_pts=20, make_legend=False, plot_inside_group=False, logscale=False,
@@ -837,91 +843,96 @@ class trajectory_analysis:
                     self.data_list_with_results_full['group_readable'])
             labels = plot_labels
 
+        D_cols = []
+        if(self.fit_msd_with_no_error_term):
+            D_cols.append('D')
+        if(self.fit_msd_with_error_term):
+            D_cols.append('D_Err')
+        for D_col in D_cols:
+            fig3 = plt.figure()
+            ax3 = fig3.add_subplot(1, 1, 1)
 
-        fig3 = plt.figure()
-        ax3 = fig3.add_subplot(1, 1, 1)
+            for group in np.unique(self.data_list_with_results_full['group_readable']):
+                group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
 
-        for group in np.unique(self.data_list_with_results_full['group_readable']):
-            group_data = self.data_list_with_results_full[self.data_list_with_results_full['group_readable'] == group]
-
-            if(logscale):
-                obs_dist = np.log(group_data['D'])
-            else:
-                obs_dist = group_data['D']
-            if(len(obs_dist)>min_pts):
-                if (plot_inside_group):
-                    fig = plt.figure()
-                    ax = fig.add_subplot(1, 1, 1)
-
-                plotting_ind = np.arange(obs_dist.min() - bin_size, obs_dist.max() + bin_size, bin_size)
-                if(plot_type == 'gkde'):
-                    gkde = stats.gaussian_kde(obs_dist)
-                    plotting_kdepdf = gkde.evaluate(plotting_ind)
-                    ax3.plot(plotting_ind, plotting_kdepdf, label=group)
+                if(logscale):
+                    obs_dist = np.log(group_data[D_col])
                 else:
-                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability",
-                                 label=group, ax=ax3)
+                    obs_dist = group_data[D_col]
+                if(len(obs_dist)>min_pts):
+                    if (plot_inside_group):
+                        fig = plt.figure()
+                        ax = fig.add_subplot(1, 1, 1)
 
-                #filter by file name
-                if(plot_inside_group):
-                    for id in np.unique(group_data["id"]):
-                        cur_data = group_data[group_data["id"]==id]
+                    plotting_ind = np.arange(obs_dist.min() - bin_size, obs_dist.max() + bin_size, bin_size)
+                    if(plot_type == 'gkde'):
+                        gkde = stats.gaussian_kde(obs_dist)
+                        plotting_kdepdf = gkde.evaluate(plotting_ind)
+                        ax3.plot(plotting_ind, plotting_kdepdf, label=group)
+                    else:
+                        sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False, stat="probability",
+                                     label=group, ax=ax3)
+
+                    #filter by file name
+                    if(plot_inside_group):
+                        for id in np.unique(group_data["id"]):
+                            cur_data = group_data[group_data["id"]==id]
+                            if (logscale):
+                                obs_dist = np.log(cur_data[D_col])
+                            else:
+                                obs_dist = cur_data[D_col]
+
+                            if(len(obs_dist)>min_pts):
+                                plotting_ind = np.arange(obs_dist.min() - bin_size, obs_dist.max() + bin_size, bin_size)
+                                if (self._roi_col_name in cur_data.columns):
+                                    roi_str = '-' + str(cur_data[self._roi_col_name].iloc[0])
+                                else:
+                                    roi_str = ''
+                                if (plot_type == 'gkde'):
+                                    gkde = stats.gaussian_kde(obs_dist)
+                                    plotting_kdepdf = gkde.evaluate(plotting_ind)
+                                    ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_data[self._file_col_name].iloc[0])+roi_str)
+                                else:
+                                    sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False,
+                                                 stat="probability", label=str(cur_data[self._file_col_name].iloc[0])+roi_str, alpha=0.6)
                         if (logscale):
-                            obs_dist = np.log(cur_data['D'])
+                            ax.set_xlabel(f"$log(D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s))$")
                         else:
-                            obs_dist = cur_data['D']
+                            ax.set_xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
-                        if(len(obs_dist)>min_pts):
-                            plotting_ind = np.arange(obs_dist.min() - bin_size, obs_dist.max() + bin_size, bin_size)
-                            if (self._roi_col_name in cur_data.columns):
-                                roi_str = '-' + str(cur_data[self._roi_col_name].iloc[0])
-                            else:
-                                roi_str = ''
-                            if (plot_type == 'gkde'):
-                                gkde = stats.gaussian_kde(obs_dist)
-                                plotting_kdepdf = gkde.evaluate(plotting_ind)
-                                ax.plot(plotting_ind, plotting_kdepdf, label=str(cur_data[self._file_col_name].iloc[0])+roi_str)
-                            else:
-                                sns.histplot(x=obs_dist, bins=plotting_ind, element="step", fill=False,
-                                             stat="probability", label=str(cur_data[self._file_col_name].iloc[0])+roi_str, alpha=0.6)
-                    if (logscale):
-                        ax.set_xlabel(f"$log(D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s))$")
-                    else:
-                        ax.set_xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
+                        if (plot_type == 'gkde'):
+                            ax.set_ylabel("Density")
+                        else:
+                            ax.set_ylabel("Fraction")
 
-                    if (plot_type == 'gkde'):
-                        ax.set_ylabel("Density")
-                    else:
-                        ax.set_ylabel("Fraction")
+                        if(make_legend):
+                            ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
 
-                    if(make_legend):
-                        ax.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+                        fig.tight_layout()
+                        fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
+                        fig.clf()
+                        plt.close(fig)
 
-                    fig.tight_layout()
-                    fig.savefig(self.results_dir + "/all_" + str(group) + "_Deff_"+plot_type+".pdf")
-                    fig.clf()
-                    plt.close(fig)
+            #ax3.set_xlim(ax3.get_xlim()[0], 2)
+            if(logscale):
+                ax3.set_xlabel(f"$log(D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
+            else:
+                ax3.set_xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
-        #ax3.set_xlim(ax3.get_xlim()[0], 2)
-        if(logscale):
-            ax3.set_xlabel(f"$log(D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
-        else:
-            ax3.set_xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
+            if (plot_type == 'gkde'):
+                ax3.set_ylabel("Density")
+            else:
+                ax3.set_ylabel("Fraction")
+            ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
 
-        if (plot_type == 'gkde'):
-            ax3.set_ylabel("Density")
-        else:
-            ax3.set_ylabel("Fraction")
-        ax3.legend(loc='center left', fontsize=legend_fs, bbox_to_anchor=(1, 0.5))
+            fig3.tight_layout()
+            if(logscale):
+                fig3.savefig(self.results_dir + f'/combined_allgroups_log_eff-{D_col}_' + plot_type + '.pdf')
+            else:
+                fig3.savefig(self.results_dir + f'/combined_allgroups_eff-{D_col}_' + plot_type + '.pdf')
 
-        fig3.tight_layout()
-        if(logscale):
-            fig3.savefig(self.results_dir + '/combined_allgroups_logDeff_' + plot_type + '.pdf')
-        else:
-            fig3.savefig(self.results_dir + '/combined_allgroups_Deff_' + plot_type + '.pdf')
-
-        fig3.clf()
-        plt.close(fig3)
+            fig3.clf()
+            plt.close(fig3)
 
     def plot_distribution_alpha(self, label_order=[], plot_labels=[], plot_type='gkde', bin_size=0.02 ,
                                 min_pts=20, make_legend=False, plot_inside_group=False,
@@ -1197,34 +1208,65 @@ class trajectory_analysis:
         else:
             groups = []
 
-        if(len(groups)>0):
+        D_cols = []
+        if (self.fit_msd_with_no_error_term):
+            D_cols.append('D')
+        if (self.fit_msd_with_error_term):
+            D_cols.append('D_Err')
 
-            for group_i, group in enumerate(groups):
-                group_str=''
-                if(type(group)==type("")):
-                    group_str = group
-                else:
-                    for g in group:
-                        group_str += (g + '_')
-                        group_str=group_str[:-1]
+        for D_col in D_cols:
+
+            if(len(groups)>0):
+
+                for group_i, group in enumerate(groups):
+                    group_str=''
+                    if(type(group)==type("")):
+                        group_str = group
+                    else:
+                        for g in group:
+                            group_str += (g + '_')
+                            group_str=group_str[:-1]
+                    fig = plt.figure()
+                    ax = fig.add_subplot(1, 1, 1)
+                    group_df = grouped_data_list.get_group(group)
+                    id_list = group_df.id
+                    cur_data=self.data_list_with_results_full[self.data_list_with_results_full.id.isin(id_list)].copy()
+
+                    cur_data[label + '_tonum'] = -1
+                    for order_i, order_label in enumerate(label_order):
+                        cur_data[label + '_tonum'] = np.where(cur_data[label].astype('str') == str(order_label), order_i,
+                                                              cur_data[label + '_tonum'])
+                    cur_data[hue_var] = "cell " + cur_data[hue_var].astype('str')
+
+                    sns.lineplot(x=label+'_tonum', y=D_col, data=cur_data, hue=hue_var, estimator=np.median, ci=None, ax=ax)
+
+                    if(show_legend):
+                        self.sort_legend(ax)
+                    else:
+                        ax.get_legend().remove()
+
+                    ax.set_xticks(range(len(label_order)))
+                    ax.set_xticklabels(label_order)
+                    plt.xticks(rotation='vertical')
+                    plt.xlabel(label)
+
+                    plt.tight_layout()
+                    fig.savefig(self.results_dir + '/' + group_str + '_by_cell.pdf')
+                    fig.clf()
+            else:
                 fig = plt.figure()
                 ax = fig.add_subplot(1, 1, 1)
-                group_df = grouped_data_list.get_group(group)
-                id_list = group_df.id
-                cur_data=self.data_list_with_results_full[self.data_list_with_results_full.id.isin(id_list)].copy()
+                cur_data = self.data_list_with_results_full.copy()
 
                 cur_data[label + '_tonum'] = -1
                 for order_i, order_label in enumerate(label_order):
                     cur_data[label + '_tonum'] = np.where(cur_data[label].astype('str') == str(order_label), order_i,
                                                           cur_data[label + '_tonum'])
-                cur_data[hue_var] = "cell " + cur_data[hue_var].astype('str')
+                cur_data[hue_var]="cell "+cur_data[hue_var].astype('str')
 
-                sns.lineplot(x=label+'_tonum', y="D", data=cur_data, hue=hue_var, estimator=np.median, ci=None, ax=ax)
+                sns.lineplot(x=label + '_tonum', y=D_col, data=cur_data, hue="cell", estimator=np.median, ax=ax)
 
-                if(show_legend):
-                    self.sort_legend(ax)
-                else:
-                    ax.get_legend().remove()
+                self.sort_legend(ax)
 
                 ax.set_xticks(range(len(label_order)))
                 ax.set_xticklabels(label_order)
@@ -1232,31 +1274,8 @@ class trajectory_analysis:
                 plt.xlabel(label)
 
                 plt.tight_layout()
-                fig.savefig(self.results_dir + '/' + group_str + '_by_cell.pdf')
+                fig.savefig(self.results_dir + '/all_by_cell.pdf')
                 fig.clf()
-        else:
-            fig = plt.figure()
-            ax = fig.add_subplot(1, 1, 1)
-            cur_data = self.data_list_with_results_full.copy()
-
-            cur_data[label + '_tonum'] = -1
-            for order_i, order_label in enumerate(label_order):
-                cur_data[label + '_tonum'] = np.where(cur_data[label].astype('str') == str(order_label), order_i,
-                                                      cur_data[label + '_tonum'])
-            cur_data[hue_var]="cell "+cur_data[hue_var].astype('str')
-
-            sns.lineplot(x=label + '_tonum', y="D", data=cur_data, hue="cell", estimator=np.median, ax=ax)
-
-            self.sort_legend(ax)
-
-            ax.set_xticks(range(len(label_order)))
-            ax.set_xticklabels(label_order)
-            plt.xticks(rotation='vertical')
-            plt.xlabel(label)
-
-            plt.tight_layout()
-            fig.savefig(self.results_dir + '/all_by_cell.pdf')
-            fig.clf()
 
     def make_heatmap_step_sizes(self, label_order=[], bin_width=0.001, min_step_size=0, max_step_size=0.101):
         #bin_width=0.009, min_step_size=0.1, max_step_size=1): #bin_width=0.001, min_step_size=0, max_step_size=0.1):
@@ -1452,22 +1471,29 @@ class trajectory_analysis:
                     self.data_list_with_results_full['group_readable'])
             labels = plot_labels
 
-        fig = plt.figure()
-        ax = fig.add_subplot(1, 1, 1)
+        y_cols = []
+        if (self.fit_msd_with_no_error_term):
+            y_cols.append('D')
+        if (self.fit_msd_with_error_term):
+            y_cols.append('D_Err')
 
-        sns.pointplot(x="group_readable", y='D', data=self.data_list_with_results_full, estimator=np.median, order=labels, #showfliers=False, #fliersize=0,
-                        capsize=0.02, join=False, ax=ax, color='black', scale=.8, errwidth=1.5)
+        for y_col in y_cols:
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
+            sns.pointplot(x="group_readable", y=y_col, data=self.data_list_with_results_full,
+                          estimator=np.median, order=labels,  # showfliers=False, #fliersize=0,
+                          capsize=0.02, join=False, ax=ax, color='black', scale=.8, errwidth=1.5)
 
-        ax.set(xlabel=xlabel)
-        if (ylabel != ''):
-            ax.set(ylabel=ylabel)
-        else:
-            ax.set(ylabel=f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
+            ax.set(xlabel=xlabel)
+            if (ylabel != ''):
+                ax.set(ylabel=ylabel)
+            else:
+                ax.set(ylabel=f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
 
-        plt.xticks(rotation='vertical')
-        plt.tight_layout()
-        fig.savefig(self.results_dir + '/summary_combined_D.pdf')
-        fig.clf()
+            plt.xticks(rotation='vertical')
+            plt.tight_layout()
+            fig.savefig(self.results_dir + f'/summary_combined_{y_col}.pdf')
+            fig.clf()
 
     def make_plot(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10, dot_size=4, points_plot="swarm"):
         # label_order should match the group labels (i.e. group/group_readable)
@@ -1501,10 +1527,22 @@ class trajectory_analysis:
                                                                        plot_label,self.data_list_with_results['group_readable'])
             labels=plot_labels
 
-        data_to_plot=self.data_list_with_results[self.data_list_with_results['num_tracks_D']>min_pts]
-        for y_col in ['D_median','D_median_filtered']:
+        y_cols = []
+        num_tracks_cols = []
+        if(self.fit_msd_with_no_error_term):
+            y_cols.extend(['D_median','D_median_filtered'])
+            num_tracks_cols.extend(['num_tracks_D', 'num_tracks_D'])
+        if (self.fit_msd_with_error_term):
+            y_cols.extend(['D_Err_median', 'D_Err_median_filtered'])
+            num_tracks_cols.extend(['num_tracks_D_Err', 'num_tracks_D_Err'])
+
+        for j,y_col in enumerate(y_cols):
             fig = plt.figure()
             ax = fig.add_subplot(1, 1, 1)
+
+            num_tracks_col = num_tracks_cols[j]
+            data_to_plot = self.data_list_with_results[self.data_list_with_results[num_tracks_col] > min_pts]
+
             if(clrs != []):
                 sns.boxplot(x="group_readable", y=y_col, data=data_to_plot, order=labels, fliersize=0, ax=ax,
                             palette=clrs)
@@ -1556,26 +1594,30 @@ class trajectory_analysis:
                     self.data_list_with_results_full['group_readable'])
             labels = plot_labels
 
-        fig = plt.figure()
-        ax = fig.add_subplot(1, 1, 1)
+        D_cols = []
+        if (self.fit_msd_with_no_error_term):
+            D_cols.append('D')
+        if (self.fit_msd_with_error_term):
+            D_cols.append('D_Err')
 
-        sns.scatterplot(x="D",y="int_mean",data=self.data_list_with_results_full,
-                        hue="group_readable", #"file name", #"group_readable",
-                        s=dot_size,
-                        #legend=False,
-                        ax=ax)
-        l = ax.legend()
-        l.set_title('')
-        #ax.set_xlim(ax.get_xlim()[0],4)
-        plt.xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
-        plt.ylabel('Ave Px Intensity')
-        plt.tight_layout()
-        fig.savefig(self.results_dir + f"/D_vs_intensity.pdf")
-        fig.clf()
+        for D_col in D_cols:
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
 
-        # for file_ in self.data_list_with_results_full['file name'].unique():
-        #     cur_data = self.data_list_with_results_full.loc[self.data_list_with_results_full['file name']==file_]
-        #     print(stats.pearsonr(cur_data['D'],cur_data['int_mean']))
+
+            sns.scatterplot(x=D_col, y="int_mean", data=self.data_list_with_results_full,
+                            hue="group_readable", #"file name", #"group_readable",
+                            s=dot_size,
+                            #legend=False,
+                            ax=ax)
+            l = ax.legend()
+            l.set_title('')
+            #ax.set_xlim(ax.get_xlim()[0],4)
+            plt.xlabel(f"$D_{{{d_label} ms}}$"+r" $(\mu m^{2}/s)$")
+            plt.ylabel('Ave Px Intensity')
+            plt.tight_layout()
+            fig.savefig(self.results_dir + f"/D_vs_intensity.pdf")
+            fig.clf()
 
     def make_plot_roi_area(self, label_order=[], plot_labels=[], xlabel='', ylabel='', clrs=[], min_pts=10, dot_size=4):
         #make plot of ROI Area vs. med(Deff)
@@ -1604,11 +1646,22 @@ class trajectory_analysis:
                     plot_label, self.data_list_with_results['group_readable'])
             labels = plot_labels
 
-        data_to_plot = self.data_list_with_results[self.data_list_with_results['num_tracks_D'] > min_pts].copy()
-        data_to_plot['group']=data_to_plot['group_readable']
-        for y_col in ['D_median','D_median_filtered']:
+        y_cols = []
+        num_tracks_cols = []
+        if (self.fit_msd_with_no_error_term):
+            y_cols.extend(['D_median', 'D_median_filtered'])
+            num_tracks_cols.extend(['num_tracks_D', 'num_tracks_D'])
+        if (self.fit_msd_with_error_term):
+            y_cols.extend(['D_Err_median', 'D_Err_median_filtered'])
+            num_tracks_cols.extend(['num_tracks_D_Err', 'num_tracks_D_Err'])
+
+        for j,y_col in enumerate(y_cols):
             fig = plt.figure()
             ax = fig.add_subplot(1, 1, 1)
+
+            num_tracks_col = num_tracks_cols[j]
+            data_to_plot = self.data_list_with_results[self.data_list_with_results[num_tracks_col] > min_pts].copy()
+            data_to_plot['group'] = data_to_plot['group_readable']
 
             if (clrs != []):
                 sns.scatterplot(x="area", y=y_col, data=data_to_plot, hue='group',
@@ -1991,12 +2044,29 @@ class trajectory_analysis:
         self.cos_theta_by_group.to_csv(self.results_dir + '/' + "cos_theta_by_group.txt", sep='\t')
 
     def set_rows_to_none(self, i, a, l, g, gr):
-        self.data_list_with_results.at[i, 'D_median'] = np.nan
-        self.data_list_with_results.at[i, 'D_mean'] = np.nan
-        self.data_list_with_results.at[i, 'D_median_filtered'] = np.nan
-        self.data_list_with_results.at[i, 'D_mean_filtered'] = np.nan
+        if(self.fit_msd_with_no_error_term):
+            self.data_list_with_results.at[i, 'D_median'] = np.nan
+            self.data_list_with_results.at[i, 'D_mean'] = np.nan
+            self.data_list_with_results.at[i, 'D_median_filtered'] = np.nan
+            self.data_list_with_results.at[i, 'D_mean_filtered'] = np.nan
+            self.data_list_with_results.at[i, 'num_tracks_D'] = 0
+            self.data_list_with_results.at[i, 'ensemble_D'] = np.nan
+            self.data_list_with_results.at[i, 'ensemble_r_sq'] = np.nan
+
+        if (self.fit_msd_with_error_term):
+            self.data_list_with_results.at[i, 'D_Err_median'] = np.nan
+            self.data_list_with_results.at[i, 'D_Err_mean'] = np.nan
+            self.data_list_with_results.at[i, 'D_Err_median_filtered'] = np.nan
+            self.data_list_with_results.at[i, 'D_Err_mean_filtered'] = np.nan
+            self.data_list_with_results.at[i, 'num_tracks_D_Err'] = 0
+            self.data_list_with_results.at[i, 'ensemble_D_Err'] = np.nan
+            self.data_list_with_results.at[i, 'ensemble_Err'] = np.nan
+            self.data_list_with_results.at[i, 'ensemble_r_sq_Err'] = np.nan
+
+        self.data_list_with_results.at[i, 'ensemble_loglog_K'] = np.nan
+        self.data_list_with_results.at[i, 'ensemble_loglog_aexp'] = np.nan
+        self.data_list_with_results.at[i, 'ensemble_loglog_r_sq'] = np.nan
         self.data_list_with_results.at[i, 'num_tracks'] = l
-        self.data_list_with_results.at[i, 'num_tracks_D'] = 0
         self.data_list_with_results.at[i, 'area'] = a
         self.data_list_with_results.at[i, 'group'] = g
         self.data_list_with_results.at[i, 'group_readable'] = gr
@@ -2080,6 +2150,7 @@ class trajectory_analysis:
             self.data_list_with_results['D_mean']=0.0
             self.data_list_with_results['D_median_filtered'] = 0.0
             self.data_list_with_results['D_mean_filtered'] = 0.0
+            self.data_list_with_results['num_tracks_D'] = 0
             self.data_list_with_results['ensemble_D'] = ''
             self.data_list_with_results['ensemble_r_sq'] = ''
 
@@ -2088,6 +2159,7 @@ class trajectory_analysis:
             self.data_list_with_results['D_Err_mean']=0.0
             self.data_list_with_results['D_Err_median_filtered'] = 0.0
             self.data_list_with_results['D_Err_mean_filtered'] = 0.0
+            self.data_list_with_results['num_tracks_D_Err'] = 0
             self.data_list_with_results['ensemble_D_Err'] = ''
             self.data_list_with_results['ensemble_Err'] = ''
             self.data_list_with_results['ensemble_r_sq_Err'] = ''
@@ -2096,7 +2168,6 @@ class trajectory_analysis:
         self.data_list_with_results['ensemble_loglog_aexp'] = ''
         self.data_list_with_results['ensemble_loglog_r_sq'] = ''
         self.data_list_with_results['num_tracks'] = 0
-        self.data_list_with_results['num_tracks_D'] = 0
         self.data_list_with_results['area'] = ''
         self.data_list_with_results['group']=''
         self.data_list_with_results['group_readable'] = ''
@@ -2301,7 +2372,8 @@ class trajectory_analysis:
                     track_data_df_all = pd.concat([track_data_df_all, track_data_df], axis=0, ignore_index=True)
 
                     # rainbow tracks
-                    if(self.make_rainbow_tracks): # lw is line width in the matplotlib function - convert from pixel size - using 96 PPI (???)
+                    if(self.make_rainbow_tracks): # TODO: pool this for multi-processing!
+
                         if(self.fit_msd_with_no_error_term and cur_ax != None):
                             msd_diff_obj.save_tracks_to_img(cur_ax,
                                                             len_cutoff='none',
@@ -2342,13 +2414,12 @@ class trajectory_analysis:
                         #     msd_diff_obj.save_tracks_to_img_clr(cur_ax_roi, lw=0.1, color=roi_colors[count])
                         #     count += 1
 
-                    if (len(msd_diff_obj.D_linfits) == 0):
+                    if len(msd_diff_obj.D_linfits) == 0 and len(msd_diff_obj.D_linfits_E) == 0:
                         self.log.write("Note!  File '" + cur_dir + "/" + cur_file +
                                        "' contains 0 tracks of minimum length for calculating Deff (" +
                                        str(msd_diff_obj.min_track_len_linfit) + ")\n")
                         self.log.flush()
-                        self.set_rows_to_none(index, roi_area, len(msd_diff_obj.track_lengths), file_str,
-                                              group_readable)
+                        self.set_rows_to_none(index, roi_area, len(msd_diff_obj.track_lengths), file_str, group_readable)
                         continue
 
                     # Fill data array
@@ -2375,6 +2446,7 @@ class trajectory_analysis:
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'group']=file_str
                     self.data_list_with_results_full.loc[full_data_i:full_data_i+len(cur_data)-1,'group_readable']=group_readable
 
+                    valid_track_ids = None
                     if(self.fit_msd_with_no_error_term):
                         D_median = np.median(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
                         D_mean = np.mean(msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_D_col])
@@ -2399,34 +2471,42 @@ class trajectory_analysis:
                         self.data_list_with_results.at[index, 'D_mean_filtered'] = D_mean_filt
                         self.data_list_with_results.at[index, 'ensemble_D'] = msd_diff_obj.ensemble_fit_D
                         self.data_list_with_results.at[index, 'ensemble_r_sq'] = msd_diff_obj.ensemble_fit_rsq
+                        self.data_list_with_results.at[index, 'num_tracks_D'] = len(msd_diff_obj.D_linfits)
+
+                        valid_track_ids = msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col]
 
                     if (self.fit_msd_with_error_term):
-                        D_median = np.median(msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col])
-                        D_mean = np.mean(msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col])
-                        D_linfits_filtered = msd_diff_obj.D_linfits_E[np.where(
+                        D_Err_median = np.median(msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col])
+                        D_Err_mean = np.mean(msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col])
+                        D_Err_linfits_filtered = msd_diff_obj.D_linfits_E[np.where(
                             (msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col] <= self.max_D_cutoff) &
                             (msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_D_col] >= self.min_D_cutoff))]
-                        if (len(D_linfits_filtered) == 0):
-                            D_median_filt = np.nan
-                            D_mean_filt = np.nan
+                        if (len(D_Err_linfits_filtered) == 0):
+                            D_Err_median_filt = np.nan
+                            D_Err_mean_filt = np.nan
                         else:
-                            D_median_filt = np.median(D_linfits_filtered[:, msd_diff_obj.D_lin_E_D_col])
-                            D_mean_filt = np.mean(D_linfits_filtered[:, msd_diff_obj.D_lin_E_D_col])
-                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_median'] = D_median
-                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_mean'] = D_mean
-                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_median_filt'] = D_median_filt
-                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_mean_filt'] = D_mean_filt
+                            D_Err_median_filt = np.median(D_Err_linfits_filtered[:, msd_diff_obj.D_lin_E_D_col])
+                            D_Err_mean_filt = np.mean(D_Err_linfits_filtered[:, msd_diff_obj.D_lin_E_D_col])
 
-                        self.data_list_with_results.at[index, 'D_Err_median'] = D_median
-                        self.data_list_with_results.at[index, 'D_Err_mean'] = D_mean
-                        self.data_list_with_results.at[index, 'D_Err_median_filtered'] = D_median_filt
-                        self.data_list_with_results.at[index, 'D_Err_mean_filtered'] = D_mean_filt
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_median'] = D_Err_median
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_mean'] = D_Err_mean
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_median_filt'] = D_Err_median_filt
+                        self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'D_Err_mean_filt'] = D_Err_mean_filt
+
+                        self.data_list_with_results.at[index, 'D_Err_median'] = D_Err_median
+                        self.data_list_with_results.at[index, 'D_Err_mean'] = D_Err_mean
+                        self.data_list_with_results.at[index, 'D_Err_median_filtered'] = D_Err_median_filt
+                        self.data_list_with_results.at[index, 'D_Err_mean_filtered'] = D_Err_mean_filt
                         self.data_list_with_results.at[index, 'ensemble_D_Err'] = msd_diff_obj.ensemble_fit_E_D
                         self.data_list_with_results.at[index, 'ensemble_Err'] = msd_diff_obj.ensemble_fit_E
                         self.data_list_with_results.at[index, 'ensemble_r_sq_Err'] = msd_diff_obj.ensemble_fit_E_rsq
+                        self.data_list_with_results.at[index, 'num_tracks_D_Err'] = len(msd_diff_obj.D_linfits_E)
+
+                        if(valid_track_ids is None):
+                            valid_track_ids = msd_diff_obj.D_linfits_E[:, msd_diff_obj.D_lin_E_id_col]
 
                     self.data_list_with_results.at[index, 'num_tracks'] = len(msd_diff_obj.track_lengths)
-                    self.data_list_with_results.at[index, 'num_tracks_D'] = len(msd_diff_obj.D_linfits)
+
                     self.data_list_with_results.at[index, 'area'] = roi_area
                     self.data_list_with_results.at[index, 'group'] = file_str
                     self.data_list_with_results.at[index, 'group_readable'] = group_readable
@@ -2436,17 +2516,14 @@ class trajectory_analysis:
 
                     # output avg_velocity but only for the tracks were used in Deff calculation
                     self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_velocity'] = (
-                        msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0],
-                                                          msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col])][:,1])
+                        msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0], valid_track_ids)][:,1])
 
                     # output average and stdev of track intensities
                     if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_mean'] = (
-                            msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0],
-                                                                   msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col])][:, 1])
+                            msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0], valid_track_ids)][:, 1])
                         self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1,'int_std'] = (
-                            msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0],
-                                                                   msd_diff_obj.D_linfits[:, msd_diff_obj.D_lin_id_col])][:, 2])
+                            msd_diff_obj.track_intensities[np.isin(msd_diff_obj.track_intensities[:, 0], valid_track_ids)][:, 2])
 
                     # output eff-D and associated data
                     next_col = len(full_results1.columns) + len(full_results2_cols1)
@@ -2573,26 +2650,28 @@ class trajectory_analysis:
                 self.data_list_with_Rg = self.data_list_with_Rg.replace('', np.NaN)
                 self.data_list_with_Rg.dropna(axis=1, how='all', inplace=True)
 
-        # navigate through the groups, calculating med(D), etc for each group
+        # navigate through the groups, calculating med(D), etc for each group: for both D and D_Err, as needed
         # add to the group data frame
         for row in self.results_by_group.iterrows():
             cur_group = row[1]['group']
-            cur_group_data = self.data_list_with_results_full[self.data_list_with_results_full['group'] == cur_group]['D']
-            if(len(cur_group_data)>1):
-                if(self.fit_msd_with_no_error_term):
+            if(self.fit_msd_with_no_error_term):
+                cur_group_data = self.data_list_with_results_full[self.data_list_with_results_full['group'] == cur_group]['D']
+                if (len(cur_group_data) > 1):
                     self.results_by_group.loc[row[0], 'D_group_median'] = np.median(cur_group_data)
                     self.results_by_group.loc[row[0], 'D_group_mean'] = np.mean(cur_group_data)
                     self.results_by_group.loc[row[0], 'D_group_std'] = np.std(cur_group_data)
-                    self.results_by_group.loc[row[0], 'D_group_sem'] = np.std(cur_group_data)/np.sqrt(len(cur_group_data))
+                    self.results_by_group.loc[row[0], 'D_group_sem'] = np.std(cur_group_data) / np.sqrt(len(cur_group_data))
 
-                if (self.fit_msd_with_error_term):
-                    self.results_by_group.loc[row[0], 'D_Err_group_median'] = np.median(cur_group_data)
-                    self.results_by_group.loc[row[0], 'D_Err_group_mean'] = np.mean(cur_group_data)
-                    self.results_by_group.loc[row[0], 'D_Err_group_std'] = np.std(cur_group_data)
-                    self.results_by_group.loc[row[0], 'D_Err_group_sem'] = np.std(cur_group_data) / np.sqrt(len(cur_group_data))
+            if(self.fit_msd_with_error_term):
+                cur_group_data_Err = self.data_list_with_results_full[self.data_list_with_results_full['group'] == cur_group]['D_Err']
+                if (len(cur_group_data_Err) > 1):
+                    self.results_by_group.loc[row[0], 'D_Err_group_median'] = np.median(cur_group_data_Err)
+                    self.results_by_group.loc[row[0], 'D_Err_group_mean'] = np.mean(cur_group_data_Err)
+                    self.results_by_group.loc[row[0], 'D_Err_group_std'] = np.std(cur_group_data_Err)
+                    self.results_by_group.loc[row[0], 'D_Err_group_sem'] = np.std(cur_group_data_Err) / np.sqrt(len(cur_group_data_Err))
 
-                cur_group_data = self.data_list_with_results_full[self.data_list_with_results_full['group'] == cur_group]['aexp']
-
+            cur_group_data = self.data_list_with_results_full[self.data_list_with_results_full['group'] == cur_group]['aexp']
+            if (len(cur_group_data) > 1):
                 self.results_by_group.loc[row[0], 'aexp_group_median'] = np.median(cur_group_data)
                 self.results_by_group.loc[row[0], 'aexp_group_mean'] = np.mean(cur_group_data)
                 self.results_by_group.loc[row[0], 'aexp_group_std'] = np.std(cur_group_data)

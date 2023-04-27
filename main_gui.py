@@ -597,8 +597,8 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.write_params_to_log_file()
 
                     traj_an.calculate_msd_and_diffusion()
-                    traj_an.make_plot() #label_order=conditions_order)
-                    traj_an.make_plot_combined_data() #label_order=conditions_order) # like matlab
+                    traj_an.make_plot()
+                    traj_an.make_plot_combined_data()
                     traj_an.calculate_step_sizes_and_angles()
                     traj_an.plot_alpha_D_heatmap()
                     traj_an.plot_msd_ensemble_by_group()
@@ -612,11 +612,9 @@ class GEMSAnalyzerMainFrame(wx.Frame):
                     traj_an.plot_distribution_alpha(plot_type='', bin_size=0.1)
 
                     if(limit_with_rois):
-                        pass
-                        #traj_an.make_plot_roi_area()
+                        traj_an.make_plot_roi_area()
                     if(measure_gem_intensities):
-                        pass
-                        #traj_an.make_plot_intensity()
+                        traj_an.make_plot_intensity()
 
                     self.statusbar.SetStatusText('Finished!')
                     print("Finished!")
