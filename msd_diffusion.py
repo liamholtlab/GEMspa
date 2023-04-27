@@ -26,6 +26,7 @@ class msd_diffusion:
         self.tracks = np.asarray([])
         self.msd_tracks = np.asarray([])
         self.D_linfits = np.asarray([])
+        self.D_linfits_E = np.asarray([])
         self.track_lengths = np.asarray([])
         self.track_step_sizes=np.asarray([])
         self.save_dir = '.'
@@ -52,6 +53,7 @@ class msd_diffusion:
         self.initial_guess_aexp=1
 
         self.fit_msd_with_error_term=False
+        self.fit_msd_with_no_error_term=True
 
         self.tracks_num_cols=5
         self.tracks_id_col=0
@@ -70,15 +72,24 @@ class msd_diffusion:
         self.msd_std_col = 6
         self.msd_len_col = 7
 
-        self.D_lin_num_cols=8
+        self.D_lin_num_cols=7
         self.D_lin_id_col = 0
         self.D_lin_D_col = 1
-        self.D_lin_E_col = 2
-        self.D_lin_err_col = 3
-        self.D_lin_rsq_col = 4
-        self.D_lin_rmse_col = 5
-        self.D_lin_len_col = 6
-        self.D_lin_fitlen_col = 7
+        self.D_lin_err_col = 2
+        self.D_lin_rsq_col = 3
+        self.D_lin_rmse_col = 4
+        self.D_lin_len_col = 5
+        self.D_lin_fitlen_col = 6
+
+        self.D_lin_E_num_cols = 8
+        self.D_lin_E_id_col = 0
+        self.D_lin_E_D_col = 1
+        self.D_lin_E_E_col = 2
+        self.D_lin_E_err_col = 3
+        self.D_lin_E_rsq_col = 4
+        self.D_lin_E_rmse_col = 5
+        self.D_lin_E_len_col = 6
+        self.D_lin_E_fitlen_col = 7
 
         self.D_loglog_num_cols=9
         self.D_loglog_id_col=0
@@ -561,12 +572,25 @@ class msd_diffusion:
             popt, pcov = curve_fit(linear_fn,
                                    self.ensemble_average[:stop,self.ensemble_t_col],
                                    self.ensemble_average[:stop,self.ensemble_msd_col],
-                                   p0=[self.initial_guess_linfit, self.ensemble_t_col])
+                                   p0=[self.initial_guess_linfit, 0])
             residuals = self.ensemble_average[:stop,
                         self.ensemble_msd_col]-linear_fn_v(self.ensemble_average[:stop,
-                                                           self.ensemble_t_col],popt[0], popt[1])
+                                                           self.ensemble_t_col], popt[0], popt[1])
+            ss_res = np.sum(residuals ** 2)
+            rmse = np.mean(residuals ** 2) ** 0.5
+            ss_tot = np.sum((self.ensemble_average[:stop,
+                             self.ensemble_msd_col] - np.mean(self.ensemble_average[:stop,
+                                                              self.ensemble_msd_col])) ** 2)
+            r_squared = max(0, 1 - (ss_res / ss_tot))
+            perr = np.sqrt(np.diag(pcov))  # one standard deviation error on the parameters
 
-        else:
+            self.ensemble_fit_E_rsq = r_squared
+            self.ensemble_fit_E_rmse = rmse
+            self.ensemble_fit_E_D = popt[0]
+            self.ensemble_fit_E = popt[1]
+            self.ensemble_fit_E_Derr = perr[0]
+
+        if(self.fit_msd_with_no_error_term):
             def linear_fn(x, a):
                 return 4 * a * x
 
@@ -578,26 +602,24 @@ class msd_diffusion:
             residuals = self.ensemble_average[:stop,
                         self.ensemble_msd_col]-linear_fn_v(self.ensemble_average[:stop,
                                                            self.ensemble_t_col], popt[0])
+            ss_res = np.sum(residuals ** 2)
+            rmse = np.mean(residuals ** 2) ** 0.5
+            ss_tot = np.sum((self.ensemble_average[:stop,
+                             self.ensemble_msd_col] - np.mean(self.ensemble_average[:stop,
+                                                              self.ensemble_msd_col])) ** 2)
+            r_squared = max(0, 1 - (ss_res / ss_tot))
+            perr = np.sqrt(np.diag(pcov))  # one standard deviation error on the parameters
 
-        ss_res = np.sum(residuals ** 2)
-        rmse = np.mean(residuals ** 2) ** 0.5
-        ss_tot = np.sum((self.ensemble_average[:stop,
-                         self.ensemble_msd_col]-np.mean(self.ensemble_average[:stop,
-                                                        self.ensemble_msd_col]))**2)
-        r_squared = max(0, 1 - (ss_res / ss_tot))
-        perr = np.sqrt(np.diag(pcov))  # one standard deviation error on the parameters
+            self.ensemble_fit_rsq = r_squared
+            self.ensemble_fit_rmse = rmse
+            self.ensemble_fit_D = popt[0]
+            self.ensemble_fit_err = perr[0]
 
-        D = popt[0]
-        if (self.fit_msd_with_error_term):
-            E = popt[1]
-        else:
-            E = 0
 
-        self.ensemble_fit_rsq = r_squared
-        self.ensemble_fit_rmse = rmse
-        self.ensemble_fit_D=D
-        self.ensemble_fit_E=E
-        self.ensemble_fit_err=perr[0]
+
+
+
+
 
     def plot_msd_ensemble(self, file_name="msd_ensemble.pdf", ymax=-1, xmax=-1, fit_line=False):
 
@@ -699,7 +721,13 @@ class msd_diffusion:
 
         ids = np.unique(valid_tracks[:,self.msd_id_col])
         print("Deff number of tracks:", len(ids))
-        self.D_linfits = np.zeros((len(ids),self.D_lin_num_cols,))
+
+        if (self.fit_msd_with_error_term):
+            self.D_linfits_E = np.zeros((len(ids), self.D_lin_E_num_cols,))
+        if (self.fit_msd_with_no_error_term):
+            self.D_linfits = np.zeros((len(ids), self.D_lin_num_cols,))
+
+
         for i,id in enumerate(ids):
             cur_track = valid_tracks[np.where(valid_tracks[:, self.msd_id_col] == id)]
             if(self.use_perc_tlag_linfit):
@@ -711,12 +739,28 @@ class msd_diffusion:
                 def linear_fn(x, a, c):
                     return 4 * a * x + c
                 linear_fn_v = np.vectorize(linear_fn)
-                popt, pcov = curve_fit(linear_fn, cur_track[1:stop,self.msd_t_col], cur_track[1:stop,self.msd_msd_col],
+                popt, pcov = curve_fit(linear_fn, cur_track[1:stop, self.msd_t_col], cur_track[1:stop, self.msd_msd_col],
                                        p0=[self.initial_guess_linfit, 0])
                 residuals = cur_track[1:stop, self.msd_msd_col] - linear_fn_v(cur_track[1:stop, self.msd_t_col],
                                                                               popt[0],
                                                                               popt[1])
-            else:
+                ss_res = np.sum(residuals ** 2)
+                rmse = np.mean(residuals ** 2) ** 0.5
+                ss_tot = np.sum(
+                    (cur_track[1:stop, self.msd_msd_col] - np.mean(cur_track[1:stop, self.msd_msd_col])) ** 2)
+                r_squared = max(0, 1 - (ss_res / ss_tot))
+                perr = np.sqrt(np.diag(pcov))
+
+                self.D_linfits_E[i][self.D_lin_E_id_col] = id
+                self.D_linfits_E[i][self.D_lin_E_D_col] = popt[0]
+                self.D_linfits_E[i][self.D_lin_E_E_col] = popt[1]
+                self.D_linfits_E[i][self.D_lin_E_err_col] = perr[0]
+                self.D_linfits_E[i][self.D_lin_E_rsq_col] = r_squared
+                self.D_linfits_E[i][self.D_lin_E_rmse_col] = rmse
+                self.D_linfits_E[i][self.D_lin_E_len_col] = cur_track[0][self.msd_len_col]
+                self.D_linfits_E[i][self.D_lin_E_fitlen_col] = stop - 1
+
+            if(self.fit_msd_with_no_error_term):
                 def linear_fn(x, a):
                     return 4 * a * x
                 linear_fn_v = np.vectorize(linear_fn)
@@ -725,26 +769,19 @@ class msd_diffusion:
                 residuals = cur_track[1:stop,self.msd_msd_col] - linear_fn_v(cur_track[1:stop,self.msd_t_col],
                                                                              popt[0])
 
-            ss_res = np.sum(residuals ** 2)
-            rmse = np.mean(residuals ** 2) ** 0.5
-            ss_tot = np.sum((cur_track[1:stop, self.msd_msd_col] - np.mean(cur_track[1:stop, self.msd_msd_col])) ** 2)
-            r_squared = max(0, 1 - (ss_res / ss_tot))
-            perr = np.sqrt(np.diag(pcov))
+                ss_res = np.sum(residuals ** 2)
+                rmse = np.mean(residuals ** 2) ** 0.5
+                ss_tot = np.sum((cur_track[1:stop, self.msd_msd_col] - np.mean(cur_track[1:stop, self.msd_msd_col])) ** 2)
+                r_squared = max(0, 1 - (ss_res / ss_tot))
+                perr = np.sqrt(np.diag(pcov))
 
-            D = popt[0]
-            if (self.fit_msd_with_error_term):
-                E=popt[1]
-            else:
-                E=0
-
-            self.D_linfits[i][self.D_lin_id_col]=id
-            self.D_linfits[i][self.D_lin_D_col]=D
-            self.D_linfits[i][self.D_lin_E_col]=E
-            self.D_linfits[i][self.D_lin_err_col]=perr[0]
-            self.D_linfits[i][self.D_lin_rsq_col] = r_squared
-            self.D_linfits[i][self.D_lin_rmse_col] = rmse
-            self.D_linfits[i][self.D_lin_len_col] = cur_track[0][self.msd_len_col]
-            self.D_linfits[i][self.D_lin_fitlen_col] = stop-1
+                self.D_linfits[i][self.D_lin_id_col]=id
+                self.D_linfits[i][self.D_lin_D_col]=popt[0]
+                self.D_linfits[i][self.D_lin_err_col]=perr[0]
+                self.D_linfits[i][self.D_lin_rsq_col] = r_squared
+                self.D_linfits[i][self.D_lin_rmse_col] = rmse
+                self.D_linfits[i][self.D_lin_len_col] = cur_track[0][self.msd_len_col]
+                self.D_linfits[i][self.D_lin_fitlen_col] = stop-1
 
     def fit_msd_alpha(self):
         # fit MSD curve to get anomolous exponent, fit of each track
@@ -1273,7 +1310,9 @@ class msd_diffusion:
             if (len(cur_track) >= self.min_track_len_step_size):
                 ax.plot(cur_track[:,self.tracks_x_col],cur_track[:,self.tracks_y_col],'-',color=color,linewidth=lw)
 
-    def save_tracks_to_img(self, ax, len_cutoff='none', remove_tracks=False, min_Deff=0.01, max_Deff=2, lw=0.1):
+    def save_tracks_to_img(self, ax, len_cutoff='none',
+                           remove_tracks=False, error_term=False,
+                           min_Deff=0.01, max_Deff=2, lw=0.1):
         if(len_cutoff == 'default'):
             len_cutoff=self.min_track_len_linfit
 
@@ -1288,7 +1327,11 @@ class msd_diffusion:
                     x_vals = cur_track[:, self.tracks_x_col]
                     y_vals = cur_track[:, self.tracks_y_col]
 
-                D = self.D_linfits[self.D_linfits[:,self.D_lin_id_col]==id][0,self.D_lin_D_col]
+                if(error_term):
+                    D = self.D_linfits_E[self.D_linfits_E[:, self.D_lin_E_id_col] == id][0, self.D_lin_E_D_col]
+                else:
+                    D = self.D_linfits[self.D_linfits[:,self.D_lin_id_col]==id][0,self.D_lin_D_col]
+
                 if(remove_tracks and (D < min_Deff or D > max_Deff)):
                     continue
                 else:
