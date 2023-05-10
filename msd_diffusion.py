@@ -123,6 +123,7 @@ class msd_diffusion:
         self.track_step_sizes = np.asarray([])
         self.msd_tracks = np.asarray([])
         self.D_linfits = np.asarray([])
+        self.D_linfits_E = np.asarray([])
         self.D_loglogfits = np.asarray([])
         self.alpha_appfits = np.asarray([])
         self.r_of_g = np.asarray([])
@@ -710,6 +711,7 @@ class msd_diffusion:
 
         if(len(self.msd_tracks) == 0):
             self.D_linfits = np.asarray([])
+            self.D_linfits_E = np.asarray([])
             return ()
 
         #msd_len is one less than the track len
@@ -717,6 +719,7 @@ class msd_diffusion:
 
         if(len(valid_tracks) == 0):
             self.D_linfits = np.asarray([])
+            self.D_linfits_E = np.asarray([])
             return ()
 
         ids = np.unique(valid_tracks[:,self.msd_id_col])
