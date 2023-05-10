@@ -2071,6 +2071,10 @@ class trajectory_analysis:
         self.data_list_with_results.at[i, 'group'] = g
         self.data_list_with_results.at[i, 'group_readable'] = gr
 
+        for tau in range(1, self.tlag_cutoff_ensemble + 1):
+            self.data_list_with_results["MSD_ave_" + str(tau * self.time_step)] = np.nan
+            self.data_list_with_results["MSD_std_" + str(tau * self.time_step)] = np.nan
+
     def calculate_msd_and_diffusion(self, save_per_file_data=False):
         # calculates the msd and diffusion data for ALL groups
 
@@ -2116,7 +2120,7 @@ class trajectory_analysis:
             full_results2_cols1.extend(['D_median','D_mean','D_median_filt','D_mean_filt'])
         if(self.fit_msd_with_error_term):
             full_results2_cols1.extend(['D_Err_median', 'D_Err_mean', 'D_Err_median_filt', 'D_Err_mean_filt'])
-        full_results2_cols1.extend(['avg_velocity','int_mean','int_std'])
+        full_results2_cols1.extend(['avg_velocity','int_mean','int_std','start_frame','end_frame'])
 
         full_results2_cols2 = []
         if (self.fit_msd_with_no_error_term):
@@ -2172,6 +2176,10 @@ class trajectory_analysis:
         self.data_list_with_results['group']=''
         self.data_list_with_results['group_readable'] = ''
 
+        for tau in range(1, self.tlag_cutoff_ensemble + 1):
+            self.data_list_with_results["MSD_ave_" + str(tau * self.time_step)] = ''
+            self.data_list_with_results["MSD_std_" + str(tau * self.time_step)] = ''
+
         # make a dataframe containing summary values by group, and ensemble-avg MSD fitting results
         colnames=['group', 'group_readable']
         if (self.fit_msd_with_no_error_term):
@@ -2184,6 +2192,7 @@ class trajectory_analysis:
         colnames.extend(['ensemble_loglog_K', 'ensemble_loglog_aexp', 'ensemble_loglog_r_sq',
                          'aexp_group_median', 'aexp_group_mean', 'aexp_group_std', 'aexp_group_sem',
                          'group_num_tracks', 'ensemble_num_tracks'])
+
         self.results_by_group = pd.DataFrame(np.empty((len(group_list), len(colnames)), dtype=np.str), columns=colnames)
 
         msd_diff_obj = self.make_msd_diff_object()
@@ -2514,9 +2523,21 @@ class trajectory_analysis:
                     self.data_list_with_results.at[index, 'ensemble_loglog_aexp'] = msd_diff_obj.anomolous_fit_alpha
                     self.data_list_with_results.at[index, 'ensemble_loglog_r_sq'] = msd_diff_obj.anomolous_fit_rsq
 
+                    # output the tau vs. MSD points for ensemble average
+                    for tau in range(1, self.tlag_cutoff_ensemble + 1):
+                        if (len(msd_diff_obj.ensemble_average) >= tau):
+                            self.data_list_with_results.at[index, "MSD_ave_" + str(tau * self.time_step)] = msd_diff_obj.ensemble_average[tau - 1][1]
+                            self.data_list_with_results.at[index, "MSD_std_" + str(tau * self.time_step)] = msd_diff_obj.ensemble_average[tau - 1][2]
+
                     # output avg_velocity but only for the tracks were used in Deff calculation
                     self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_velocity'] = (
                         msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0], valid_track_ids)][:,1])
+
+                    # output Frame Start and Frame End but only for tracks used in Deff calculation
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'start_frame'] = (
+                        msd_diff_obj.track_frames[np.isin(msd_diff_obj.track_frames[:, 0], valid_track_ids)][:, 1])
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'end_frame'] = (
+                        msd_diff_obj.track_frames[np.isin(msd_diff_obj.track_frames[:, 0], valid_track_ids)][:, 2])
 
                     # output average and stdev of track intensities
                     if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):

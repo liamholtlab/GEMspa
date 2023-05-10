@@ -28,6 +28,7 @@ class msd_diffusion:
         self.D_linfits = np.asarray([])
         self.D_linfits_E = np.asarray([])
         self.track_lengths = np.asarray([])
+        self.track_frames = np.asarray([])
         self.track_step_sizes=np.asarray([])
         self.save_dir = '.'
 
@@ -120,6 +121,7 @@ class msd_diffusion:
     def set_track_data(self, track_data):
         self.tracks=track_data
         self.track_lengths = np.asarray([])
+        self.track_frames = np.asarray([])
         self.track_step_sizes = np.asarray([])
         self.msd_tracks = np.asarray([])
         self.D_linfits = np.asarray([])
@@ -252,10 +254,15 @@ class msd_diffusion:
         # fill track length array with the track lengths
         ids = np.unique(self.tracks[:, self.tracks_id_col])
         self.track_lengths = np.zeros((len(ids), 2))
+        self.track_frames = np.zeros((len(ids), 3))
         for i,id in enumerate(ids):
             cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
             self.track_lengths[i,0] = id
             self.track_lengths[i,1] = len(cur_track)
+
+            self.track_frames[i,0] = id
+            self.track_frames[i,1] = cur_track[:, self.tracks_frame_col].min()
+            self.track_frames[i,2] = cur_track[:, self.tracks_frame_col].max()
 
     def fill_track_sizes(self):
         # add column to tracks array containing the step size for each step of each track (distance between points)
