@@ -2072,8 +2072,8 @@ class trajectory_analysis:
         self.data_list_with_results.at[i, 'group_readable'] = gr
 
         for tau in range(1, self.tlag_cutoff_ensemble + 1):
-            self.data_list_with_results["MSD_ave_" + str(tau * self.time_step)] = np.nan
-            self.data_list_with_results["MSD_std_" + str(tau * self.time_step)] = np.nan
+            self.data_list_with_results.at[i, "MSD_ave_" + str(tau * self.time_step)] = np.nan
+            self.data_list_with_results.at[i, "MSD_std_" + str(tau * self.time_step)] = np.nan
 
     def calculate_msd_and_diffusion(self, save_per_file_data=False):
         # calculates the msd and diffusion data for ALL groups
