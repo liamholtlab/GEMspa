@@ -224,7 +224,6 @@ class trajectory_analysis:
 
         self.output_plain_rainbow_tracks_time=False
         self.combine_rois=False
-        self.radius_of_gyration=False
         self.NGP=False
 
         self.output_filtered_tracks=True
@@ -2120,7 +2119,7 @@ class trajectory_analysis:
             full_results2_cols1.extend(['D_median','D_mean','D_median_filt','D_mean_filt'])
         if(self.fit_msd_with_error_term):
             full_results2_cols1.extend(['D_Err_median', 'D_Err_mean', 'D_Err_median_filt', 'D_Err_mean_filt'])
-        full_results2_cols1.extend(['avg_velocity','int_mean','int_std','start_frame','end_frame'])
+        full_results2_cols1.extend(['avg_speed','r_of_g','int_mean','int_std','start_frame','end_frame'])
 
         full_results2_cols2 = []
         if (self.fit_msd_with_no_error_term):
@@ -2132,20 +2131,6 @@ class trajectory_analysis:
         cols_len=len(full_results2_cols1) + len(full_results2_cols2) + len(full_results2_cols3)
         full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2+full_results2_cols3)
         self.data_list_with_results_full = pd.concat([full_results1, full_results2], axis=1)
-
-        # make a dataframe for the radius of gyration, avg velocity, and track length.  for each, the distribution will be output in a row
-        if(self.radius_of_gyration):
-            colnames = list(self.data_list.columns)
-            endpos = len(colnames)
-            rest_cols = np.asarray(range(max_num_tracks))
-            rest_cols = rest_cols.astype('str')
-            colnames.extend(rest_cols)
-            self.data_list_with_Rg = pd.DataFrame(np.empty((len(self.data_list)*3, len(self.data_list.columns) + max_num_tracks),
-                                                           dtype=np.str), columns=colnames)
-            self.data_list_with_Rg.insert(loc=0, column='id', value='')
-            self.data_list_with_Rg.insert(loc=endpos + 1, column='group', value='')
-            self.data_list_with_Rg.insert(loc=endpos + 2, column='group_readable', value='')
-            self.data_list_with_Rg.insert(loc=endpos + 3, column='data', value='')
 
         # make a dataframe containing only median and mean D values for each movie
         self.data_list_with_results = self.data_list.copy()
@@ -2363,8 +2348,7 @@ class trajectory_analysis:
                     msd_diff_obj.calculate_ensemble_average()
                     msd_diff_obj.fit_msd_ensemble()
                     msd_diff_obj.fit_msd_ensemble_alpha()
-                    if(self.radius_of_gyration):
-                        msd_diff_obj.radius_of_gyration()
+                    msd_diff_obj.radius_of_gyration(len_cutoff=msd_diff_obj.min_track_len_linfit)
                     msd_diff_obj.average_velocity()
 
                     if(self.measure_track_intensities and index in self.valid_movie_files and self.valid_movie_files[index]!=''):
@@ -2530,8 +2514,12 @@ class trajectory_analysis:
                             self.data_list_with_results.at[index, "MSD_std_" + str(tau * self.time_step)] = msd_diff_obj.ensemble_average[tau - 1][2]
 
                     # output avg_velocity but only for the tracks were used in Deff calculation
-                    self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_velocity'] = (
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data)-1, 'avg_speed'] = (
                         msd_diff_obj.avg_velocity[np.isin(msd_diff_obj.avg_velocity[:,0], valid_track_ids)][:,1])
+
+                    # output radius of gyration but only for the tracks were used in Deff calculation
+                    self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'r_of_g'] = (
+                        msd_diff_obj.r_of_g[np.isin(msd_diff_obj.r_of_g[:, 0], valid_track_ids)][:, 1])
 
                     # output Frame Start and Frame End but only for tracks used in Deff calculation
                     self.data_list_with_results_full.loc[full_data_i:full_data_i + len(cur_data) - 1, 'start_frame'] = (
@@ -2567,20 +2555,6 @@ class trajectory_analysis:
                         next_col+2:next_col + 3] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_rsq_col]
                     self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
                         next_col+3:next_col + 4] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_rmse_col]
-
-                    # fill Rg data and track len data
-                    if (self.radius_of_gyration):
-                        self.data_list_with_Rg.loc[Rg_i:Rg_i+2, 'id'] = index
-                        for k in range(len(self.data_list.columns)):
-                            self.data_list_with_Rg.iloc[Rg_i:Rg_i+3, k + 1] = self.data_list.loc[index][k]
-                        self.data_list_with_Rg.loc[Rg_i:Rg_i+2,'group'] = file_str
-                        self.data_list_with_Rg.loc[Rg_i:Rg_i+2,'group_readable'] = group_readable
-                        self.data_list_with_Rg.loc[Rg_i,'data'] = 'track_len'
-                        self.data_list_with_Rg.loc[Rg_i+1,'data'] = 'Rg'
-                        self.data_list_with_Rg.loc[Rg_i+2, 'data'] = 'avg_velocity'
-                        self.data_list_with_Rg.loc[Rg_i, "0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.track_lengths[:,1]
-                        self.data_list_with_Rg.loc[Rg_i+1,"0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.r_of_g[:,1]
-                        self.data_list_with_Rg.loc[Rg_i+2,"0":str(len(msd_diff_obj.r_of_g) - 1)] = msd_diff_obj.avg_velocity[:,1]
 
                     if(save_per_file_data):
                         msd_diff_obj.save_msd_data(file_name=file_str + '_' + str(index) + "_MSD.txt")
@@ -2667,10 +2641,6 @@ class trajectory_analysis:
             to_drop = range(full_data_i,full_length,1)
             self.data_list_with_results_full.drop(to_drop, axis=0, inplace=True)
 
-            if (self.radius_of_gyration):
-                self.data_list_with_Rg = self.data_list_with_Rg.replace('', np.NaN)
-                self.data_list_with_Rg.dropna(axis=1, how='all', inplace=True)
-
         # navigate through the groups, calculating med(D), etc for each group: for both D and D_Err, as needed
         # add to the group data frame
         for row in self.results_by_group.iterrows():
@@ -2703,6 +2673,4 @@ class trajectory_analysis:
         self.data_list_with_results.to_csv(self.results_dir + '/' + "summary.txt", sep='\t')
         self.data_list_with_results_full.to_csv(self.results_dir + '/' + "all_data.txt", sep='\t')
         self.results_by_group.to_csv(self.results_dir + '/' + "group_summary.txt", sep='\t')
-        if (self.radius_of_gyration):
-            self.data_list_with_Rg.to_csv(self.results_dir + '/' + "all_data_track_len_and_Rg.txt", sep='\t')
 

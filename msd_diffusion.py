@@ -432,8 +432,8 @@ class msd_diffusion:
 
     def radius_of_gyration(self, len_cutoff=0):
         # for each track, do r. of g. calculation (calculated only for a single length)
-        # if len_cutoff > 1, then r.of.g. will be calculated at len_cutoff and only for tracks >= len_cutoff
-        # otherwise, r.of.g. will be calculated for all tracks at their full length
+        # if len_cutoff > 1, then r.of.g. will be calculated only for tracks >= len_cutoff
+        # otherwise, r.of.g. will be calculated for all tracks
         # https://doi.org/10.1039/c0cp01805h
 
         if(len(self.tracks)>0):
@@ -447,11 +447,13 @@ class msd_diffusion:
                 i = 0
                 for id in valid_track_ids:
                     cur_track = self.tracks[np.where(self.tracks[:, self.tracks_id_col] == id)]
-                    if(len_cutoff > 1):
-                        n=len_cutoff
-                    else:
-                        n=len(cur_track)
-                    T = np.cov(cur_track[:n, self.tracks_x_col], cur_track[:n, self.tracks_y_col]) * (n - 1) / n  # np.cov divides by (n-1) but i want to divide by n
+                    # if(len_cutoff > 1):
+                    #     n=len_cutoff
+                    # else:
+                    #     n=len(cur_track)
+                    n = len(cur_track)
+                    T = np.cov(cur_track[:n, self.tracks_x_col], cur_track[:n, self.tracks_y_col]) * (n - 1) / n
+                    # np.cov divides by (n-1) but i want to divide by n
 
                     w, v = LA.eig(T)
                     self.r_of_g[i, 0] = id
