@@ -2132,6 +2132,10 @@ class trajectory_analysis:
         full_results2 = pd.DataFrame(np.zeros((full_length, cols_len)), columns=full_results2_cols1+full_results2_cols2+full_results2_cols3)
         self.data_list_with_results_full = pd.concat([full_results1, full_results2], axis=1)
 
+        # Columns for inst. diffusion
+        for tau in range(1, self.tlag_cutoff_linfit + 1):
+            self.data_list_with_results_full["D_i_" + str(tau * self.time_step)] = ''
+
         # make a dataframe containing only median and mean D values for each movie
         self.data_list_with_results = self.data_list.copy()
         if (self.fit_msd_with_no_error_term):
@@ -2548,13 +2552,22 @@ class trajectory_analysis:
                     # add in the alpha information for each track
                     next_col = len(full_results1.columns) + len(full_results2_cols1) + len(full_results2_cols2)
                     self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
-                        next_col:next_col + 1] = msd_diff_obj.D_loglogfits[:,msd_diff_obj.D_loglog_K_col]
+                        next_col] = msd_diff_obj.D_loglogfits[:,msd_diff_obj.D_loglog_K_col]
                     self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
-                        next_col+1:next_col + 2] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_alpha_col]
+                        next_col+1] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_alpha_col]
                     self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
-                        next_col+2:next_col + 3] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_rsq_col]
+                        next_col+2] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_rsq_col]
                     self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
-                        next_col+3:next_col + 4] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_rmse_col]
+                        next_col+3] = msd_diff_obj.D_loglogfits[:, msd_diff_obj.D_loglog_rmse_col]
+
+                    # add in the instantaneous diffusion for each track up to max tlag for fitting
+                    valid_tracks = msd_diff_obj.msd_tracks[np.isin(msd_diff_obj.msd_tracks[:, 0], valid_track_ids)]
+                    next_col = next_col + 4
+                    for tau in range(1, self.tlag_cutoff_ensemble + 1):
+                        tau = tau * self.time_step
+                        self.data_list_with_results_full.iloc[full_data_i:full_data_i + len(cur_data),
+                            next_col] = valid_tracks[valid_tracks[:, msd_diff_obj.msd_t_col] == tau, msd_diff_obj.msd_msd_col]/(4*tau)
+                        next_col += 1
 
                     if(save_per_file_data):
                         msd_diff_obj.save_msd_data(file_name=file_str + '_' + str(index) + "_MSD.txt")
