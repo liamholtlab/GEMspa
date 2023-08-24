@@ -1816,7 +1816,7 @@ class trajectory_analysis:
         rest_cols=np.asarray(range(max_tlag1_ss_num_steps))
         rest_cols=rest_cols.astype('str')
         colnames.extend(rest_cols)
-        self.data_list_with_step_sizes_full = pd.DataFrame(np.empty((nrows, ncols), dtype=np.str), columns=colnames)
+        self.data_list_with_step_sizes_full = pd.DataFrame(np.empty((nrows, ncols), dtype='str'), columns=colnames)
         self.data_list_with_step_sizes_full.insert(loc=0, column='id', value='')
         self.data_list_with_step_sizes_full.insert(loc=endpos+1, column='group', value='')
         self.data_list_with_step_sizes_full.insert(loc=endpos+2, column='group_readable', value='')
@@ -1849,7 +1849,7 @@ class trajectory_analysis:
         rest_cols = np.asarray(range(max_tlag1_angle_num_steps))
         rest_cols = rest_cols.astype('str')
         colnames.extend(rest_cols)
-        self.data_list_with_angles = pd.DataFrame(np.empty((nrows, ncols), dtype=np.str), columns=colnames)
+        self.data_list_with_angles = pd.DataFrame(np.empty((nrows, ncols), dtype='str'), columns=colnames)
         self.data_list_with_angles.insert(loc=0, column='id', value=0)
         self.data_list_with_angles.insert(loc=endpos + 1, column='group', value='')
         self.data_list_with_angles.insert(loc=endpos + 2, column='group_readable', value='')
@@ -1861,7 +1861,8 @@ class trajectory_analysis:
                     'cos_theta-median', 'cos_theta-mean',
                     'cos_theta-std', 'cos_theta-sem', 'num_angles']
 
-        self.cos_theta_by_group = pd.DataFrame(np.empty((len(group_list) * self.max_tlag_step_size, len(colnames)), dtype=np.str), columns=colnames)
+        self.cos_theta_by_group = pd.DataFrame(np.empty((len(group_list) * self.max_tlag_step_size, len(colnames)),
+                                                        dtype='str'), columns=colnames)
 
         msd_diff_obj = self.make_msd_diff_object()
 
@@ -2105,7 +2106,7 @@ class trajectory_analysis:
 
         # make a full dataframe containing all data, including all D values for all tracks etc.
         # NOTE: if track data must be filtered b/c of uneven time steps (done below), then this array may not be filled completely
-        full_results1 = pd.DataFrame(np.empty((full_length, len(self.data_list.columns)), dtype=np.str),
+        full_results1 = pd.DataFrame(np.empty((full_length, len(self.data_list.columns)), dtype='str'),
                                      columns=list(self.data_list.columns))
         full_results1.insert(loc=0, column='id', value=0)
         full_results1['group']=''
@@ -2182,7 +2183,7 @@ class trajectory_analysis:
                          'aexp_group_median', 'aexp_group_mean', 'aexp_group_std', 'aexp_group_sem',
                          'group_num_tracks', 'ensemble_num_tracks'])
 
-        self.results_by_group = pd.DataFrame(np.empty((len(group_list), len(colnames)), dtype=np.str), columns=colnames)
+        self.results_by_group = pd.DataFrame(np.empty((len(group_list), len(colnames)), dtype='str'), columns=colnames)
 
         msd_diff_obj = self.make_msd_diff_object()
 
