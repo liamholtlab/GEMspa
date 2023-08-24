@@ -101,7 +101,7 @@ if __name__ == "__main__":
                 'ensemble_loglog_K',
                 'ensemble_loglog_aexp',
                 'ensemble_loglog_r_sq']
-    data_list_with_results = pd.DataFrame(np.empty((len(files_to_process), len(colnames)), dtype=np.str),
+    data_list_with_results = pd.DataFrame(np.empty((len(files_to_process), len(colnames)), dtype='str'),
                                           columns=colnames)
 
     # Full results
